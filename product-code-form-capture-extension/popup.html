@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>表单规则采集器</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="panel">
+      <header class="header">
+        <p class="eyebrow">产品编码申请</p>
+        <h1>表单规则采集器</h1>
+        <p class="summary">采集字段、选项和页面校验。不读取填写值，不发送网络请求。</p>
+      </header>
+
+      <section class="card">
+        <label class="field-label" for="scenario">当前状态名称</label>
+        <input
+          id="scenario"
+          type="text"
+          maxlength="80"
+          placeholder="例如：生态类 + 标准硬件"
+          autocomplete="off"
+        />
+        <p class="hint">每改变一组关键选项，采集一次。</p>
+
+        <label class="check-row">
+          <input id="includeScreenshot" type="checkbox" />
+          <span>同时保存当前可见区截图</span>
+        </label>
+        <p class="warning">截图会尝试遮住输入控件，但仍请只在空白测试表单上使用。</p>
+
+        <button id="capture" class="primary" type="button">采集当前状态</button>
+        <div id="status" class="status" role="status" aria-live="polite"></div>
+      </section>
+
+      <section class="card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">仅用于测试页</p>
+            <h2>单字段回填测试</h2>
+          </div>
+        </div>
+        <label class="field-label" for="fillField">目标字段</label>
+        <select id="fillField" disabled>
+          <option value="">请先采集当前页</option>
+        </select>
+
+        <label class="field-label fill-value-label" for="fillValue">测试内容或下拉选项文字</label>
+        <input
+          id="fillValue"
+          type="text"
+          maxlength="300"
+          placeholder="输入无敏感的测试内容"
+          autocomplete="off"
+          list="fillSuggestions"
+          disabled
+        />
+        <datalist id="fillSuggestions"></datalist>
+        <p id="fillHint" class="hint">普通文本框会写入文字；单选按钮直接点击；下拉框按选项文字匹配。</p>
+        <button id="fillTest" class="secondary" type="button" disabled>仅回填该字段</button>
+        <div id="fillStatus" class="status" role="status" aria-live="polite"></div>
+        <p class="warning">插件不会点击“暂存”、“提交”、“生成编码”或任何审批按钮。</p>
+      </section>
+
+      <section class="card compact">
+        <div class="session-row">
+          <div>
+            <span class="field-label">本次采集</span>
+            <strong id="captureCount">0 个状态</strong>
+          </div>
+          <button id="clear" class="text-button" type="button">清空</button>
+        </div>
+        <ol id="captureList" class="capture-list"></ol>
+        <button id="export" class="secondary" type="button" disabled>导出 ZIP 采集包</button>
+      </section>
+
+      <details class="privacy">
+        <summary>采集范围与局限</summary>
+        <ul>
+          <li>不采集 input、textarea 或选择器的当前值。</li>
+          <li>不读取 Cookie、Token、localStorage 或网络请求。</li>
+          <li>点击采集时会扫描顶层页面及 iframe，但不会在后台持续监视。</li>
+          <li>请在导出后先自行检查内容，再离开内网环境。</li>
+        </ul>
+      </details>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "产品编码表单规则采集器",
+  "version": "0.7.0",
+  "description": "离线采集内网表单的字段结构、填写规则和校验提示，不采集字段填写值。",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "action": {
+    "default_title": "采集表单规则",
+    "default_popup": "popup.html"
+  }
+}
