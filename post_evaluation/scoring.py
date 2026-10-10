@@ -12,12 +12,21 @@ def competition_ranks(values: dict[str, float]) -> dict[str, int]:
     return {product: ordered.index(value) + 1 for product, value in values.items()}
 
 
-def rank_scores(values: dict[str, float]) -> tuple[dict[str, int], dict[str, float]]:
+def rank_scores(values: dict[str, float], ranking: dict[str, Any] | None = None) -> tuple[dict[str, int], dict[str, float]]:
+    ranking = ranking or {}
+    first_score = float(ranking.get("first_score", 10))
+    decrement = float(ranking.get("decrement", 0.5))
     ranks = competition_ranks(values)
-    return ranks, {p: 10 - (rank - 1) * 0.5 for p, rank in ranks.items()}
+    return ranks, {p: first_score - (rank - 1) * decrement for p, rank in ranks.items()}
 
 
-def calculate(year: int, files: list[dict[str, Any]], source_choices: dict[str, str]) -> dict[str, Any]:
+def calculate(year: int, files: list[dict[str, Any]], source_choices: dict[str, str], model_definition: dict[str, Any] | None = None) -> dict[str, Any]:
+    model_definition = model_definition or {}
+    ranking = model_definition.get("ranking") or {}
+    growth_absolute_by_metric = {metric: True for metric in ECONOMIC_FIELDS}
+    for dimension in model_definition.get("dimensions", []):
+        for metric in set(dimension.get("metric_keys") or []).intersection(ECONOMIC_FIELDS):
+            growth_absolute_by_metric[metric] = bool((dimension.get("options") or {}).get("growth_absolute", True))
     issues: list[dict[str, Any]] = []
     by_field: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     for f in files:
@@ -56,10 +65,10 @@ def calculate(year: int, files: list[dict[str, Any]], source_choices: dict[str, 
     scores: dict[str, dict[str, Any]] = {p: {} for p in PRODUCTS}
     traces: list[dict[str, Any]] = []
     status: dict[str, str] = {key: "待完成" if group is None else "数据待核对" for key, _, group in METRICS}
-    _score_single("market_share", f"market_share:{year}", selected, scores, traces, status)
+    _score_single("market_share", f"market_share:{year}", selected, scores, traces, status, ranking)
     for metric in ECONOMIC_FIELDS:
-        _score_economic(metric, year, selected, scores, traces, status, issues)
-    _score_three_eff(year, selected, scores, traces, status)
+        _score_economic(metric, year, selected, scores, traces, status, issues, ranking, growth_absolute_by_metric[metric])
+    _score_three_eff(year, selected, scores, traces, status, ranking)
     return {
         "year": year,
         "products": PRODUCTS,
@@ -78,18 +87,18 @@ def _complete(selected: dict, fields: list[str]) -> bool:
     return all(all(product in selected.get(field, {}) for product in PRODUCTS) for field in fields)
 
 
-def _score_single(metric: str, field: str, selected: dict, scores: dict, traces: list, status: dict) -> None:
+def _score_single(metric: str, field: str, selected: dict, scores: dict, traces: list, status: dict, ranking: dict | None = None) -> None:
     if not _complete(selected, [field]):
         return
     values = {p: selected[field][p]["value"] for p in PRODUCTS}
-    ranks, points = rank_scores(values)
+    ranks, points = rank_scores(values, ranking)
     for p in PRODUCTS:
         scores[p][metric] = points[p]
         traces.append({"product": p, "metric": metric, "score": points[p], "rank": ranks[p], "steps": [{"label": field_label(field), "value": values[p], "rank": ranks[p], "score": points[p], "source": selected[field][p]}]})
     status[metric] = "已计算"
 
 
-def _score_economic(metric: str, year: int, selected: dict, scores: dict, traces: list, status: dict, issues: list) -> None:
+def _score_economic(metric: str, year: int, selected: dict, scores: dict, traces: list, status: dict, issues: list, ranking: dict | None = None, growth_absolute: bool = True) -> None:
     previous, current = f"{metric}:{year-1}", f"{metric}:{year}"
     if not _complete(selected, [previous, current]):
         return
@@ -99,36 +108,37 @@ def _score_economic(metric: str, year: int, selected: dict, scores: dict, traces
             issues.append({"level": "error", "code": "zero_base", "message": f"{p} 的{field_label(previous)}为 0，增幅无法计算", "field": previous, "product": p})
         return
     values = {p: selected[current][p]["value"] for p in PRODUCTS}
-    changes = {p: (values[p] - selected[previous][p]["value"]) / selected[previous][p]["value"] for p in PRODUCTS}
+    raw_changes = {p: (values[p] - selected[previous][p]["value"]) / selected[previous][p]["value"] for p in PRODUCTS}
+    changes = {p: abs(value) if growth_absolute else value for p, value in raw_changes.items()}
     for p in PRODUCTS:
         if selected[previous][p]["value"] < 0:
-            issues.append({"level": "warning", "code": "negative_base", "message": f"{p} 的{field_label(previous)}为负数，按客户既定相对增幅公式计算；请复核经营含义", "field": previous, "product": p})
-    value_ranks, value_scores = rank_scores(values)
-    growth_ranks, growth_scores = rank_scores(changes)
+            issues.append({"level": "warning", "code": "negative_base", "message": f"{p} 的{field_label(previous)}为负数，增幅计算后取绝对值", "field": previous, "product": p})
+    value_ranks, value_scores = rank_scores(values, ranking)
+    growth_ranks, growth_scores = rank_scores(changes, ranking)
     averages = {p: (value_scores[p] + growth_scores[p]) / 2 for p in PRODUCTS}
-    final_ranks, final_scores = rank_scores(averages)
+    final_ranks, final_scores = rank_scores(averages, ranking)
     for p in PRODUCTS:
         scores[p][metric] = final_scores[p]
         traces.append({"product": p, "metric": metric, "score": final_scores[p], "rank": final_ranks[p], "average": averages[p], "steps": [
             {"label": field_label(previous), "value": selected[previous][p]["value"], "source": selected[previous][p]},
             {"label": field_label(current), "value": values[p], "rank": value_ranks[p], "score": value_scores[p], "source": selected[current][p]},
-            {"label": "相对增幅", "value": changes[p], "rank": growth_ranks[p], "score": growth_scores[p], "formula": f"({field_label(current)}－{field_label(previous)})÷{field_label(previous)}"},
+            {"label": "绝对增幅" if growth_absolute else "相对增幅", "value": changes[p], "rank": growth_ranks[p], "score": growth_scores[p], "formula": ("ABS(" if growth_absolute else "") + f"({field_label(current)}－{field_label(previous)})÷{field_label(previous)}" + (")" if growth_absolute else "")},
             {"label": "两项得分平均", "value": averages[p], "rank": final_ranks[p], "score": final_scores[p]},
         ]})
     status[metric] = "已计算"
 
 
-def _score_three_eff(year: int, selected: dict, scores: dict, traces: list, status: dict) -> None:
+def _score_three_eff(year: int, selected: dict, scores: dict, traces: list, status: dict, ranking: dict | None = None) -> None:
     fields = [f"{metric}:{year}" for metric in THREE_EFF_FIELDS]
     if not _complete(selected, fields):
         return
     individual = []
     for field in fields:
         values = {p: selected[field][p]["value"] for p in PRODUCTS}
-        ranks, points = rank_scores(values)
+        ranks, points = rank_scores(values, ranking)
         individual.append((field, values, ranks, points))
     averages = {p: sum(item[3][p] for item in individual) / 3 for p in PRODUCTS}
-    final_ranks, final_scores = rank_scores(averages)
+    final_ranks, final_scores = rank_scores(averages, ranking)
     for p in PRODUCTS:
         scores[p]["three_eff"] = final_scores[p]
         steps = [{"label": field_label(field), "value": values[p], "rank": ranks[p], "score": points[p], "source": selected[field][p]} for field, values, ranks, points in individual]

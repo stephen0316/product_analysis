@@ -46,9 +46,9 @@ def make_workbook(run: dict, result: dict) -> bytes:
     for col in (13, 14):
         for row in range(3, ws.max_row + 1):
             ws.cell(row, col).fill = PatternFill("solid", fgColor="F5F0E8")
-    ws["B17"] = "说明：后三项评分规则待完成；总分和总排名留空，不将待完成项记为 0。"
+    ws["B17"] = "说明：后三项数据适配器尚未接入；总分和总排名留空，不将缺失项记为 0。"
     ws["B18"] = f"当前覆盖 {result['covered_points']}/100 分；市场份额以最新年度原值排名，其他已确认项按两级排名规则计算。"
-    ws["B19"] = f"规则版本：{run.get('rule_version', 'v1-2025')}。待完成的后三项不进入正式总分。"
+    ws["B19"] = f"规则版本：{run.get('rule_version', 'v1-2025')}。缺少数据的后三项不进入正式总分。"
 
     detail = wb.create_sheet("计算明细")
     detail.append(["产品线", "维度", "最终名次", "最终得分", "步骤", "原值/中间值", "单位", "步骤名次", "步骤得分", "来源文件ID", "来源单元格", "公式"])
@@ -68,7 +68,7 @@ def make_workbook(run: dict, result: dict) -> bytes:
         issues.append([issue.get("level"), issue.get("code"), issue.get("product"), issue.get("field"), issue.get("message")])
     for key, label, group in METRICS:
         if group is None:
-            issues.append(["pending", "rule_pending", None, key, f"{label}评分规则待确认"])
+            issues.append(["pending", "adapter_pending", None, key, f"{label}规则已配置，数据适配器待接入"])
     _style_table(issues, 1)
     for col, width in {"A":13,"B":20,"C":18,"D":25,"E":90}.items():
         issues.column_dimensions[col].width = width
@@ -117,13 +117,13 @@ def make_report(run: dict, result: dict) -> bytes:
         styles["Title"]._element.pPr.remove(title_border)
     doc.add_paragraph(f"{run['year']}年重点产品后评估报告", style="Title")
     doc.add_paragraph("阶段性测算稿 · 待负责人审阅")
-    doc.add_paragraph(f"评估范围：13 条重点产品线。规则版本 {run.get('rule_version', 'v1-2025')}。已确认并计算 7 个维度，覆盖 {result['covered_points']}/100 分。自研占比／ROI、能力评测、品质服务规则待完成，本稿不生成正式总分和总排名。")
+    doc.add_paragraph(f"评估范围：13 条重点产品线。规则版本 {run.get('rule_version', 'v1-2025')}。当前已计算 7 项基础指标，覆盖 {result['covered_points']}/100 分。自研能力、能力评测、品质服务的数据适配器尚未接入，本稿不生成正式总分和总排名。")
     doc.add_heading("一 上年度评估改善情况", 1)
     doc.add_paragraph("本批次尚未录入上年度评估排名、改善措施及完成情况。该部分留待负责人补充依据并审阅，不根据本年度分数推断改善效果。")
     doc.add_heading("二 本年度产品后评估结果", 1)
     doc.add_heading("评估口径与数据来源", 2)
-    doc.add_paragraph("市场份额：取最新年度原值排名。经济效益：当年值与相对增幅分别排名赋分，取平均后再次排名赋分。产品三效：劳产、元效、人效分别排名赋分，取平均后再次排名赋分。均采用并列跳位排名；第一名 10 分，每降一名减 0.5 分。")
-    doc.add_paragraph("零基数增幅无法计算；负基数仍按既定公式计算，并保留复核提示。待完成项不计零分。")
+    doc.add_paragraph("市场份额：取最新年度原值排名。经济效益：当年值与绝对增幅分别排名赋分，取平均后再次排名赋分。产品三效：劳产、元效、人效分别排名赋分，取平均后再次排名赋分。均采用并列跳位排名；第一名 10 分，每降一名减 0.5 分。")
+    doc.add_paragraph("增幅按 ABS((当年－上年)÷上年) 计算；零基数无法计算。未接入数据不计零分。")
     for file in run["files"]:
         doc.add_paragraph(f"• {file['name']}｜{ROLES.get(file['role'], file['role'])}｜{file['sha256'][:12]}…")
     doc.add_page_break()
@@ -194,8 +194,8 @@ def make_report(run: dict, result: dict) -> bytes:
     for issue in warnings:
         warning_groups.setdefault(issue.get("field", "其他"), []).append(issue.get("product", ""))
     for field, products in warning_groups.items():
-        doc.add_paragraph(f"• {field_label(field)}负基数：{'、'.join(products)}。仍按既定相对增幅公式计算，经营含义待复核。")
-    doc.add_paragraph("待确认规则：自研占比／ROI、能力评测、品质服务。缺少上年排名、产品矩阵与人员调整依据，本稿不自动编造对应结论。")
+        doc.add_paragraph(f"• {field_label(field)}负基数：{'、'.join(products)}。增幅计算后取绝对值，经营含义待复核。")
+    doc.add_paragraph("待接入数据：自研能力、能力评测、品质服务。缺少上年排名、产品矩阵与人员调整依据，本稿不自动编造对应结论。")
     doc.add_heading("三 下一步工作计划", 1)
     notes = run.get("notes") or {}
     for heading, key in (("经营原因分析", "analysis"), ("产品处置建议", "recommendations"), ("负责人审阅意见", "review")):

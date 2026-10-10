@@ -26,7 +26,7 @@ class RankingTests(unittest.TestCase):
         self.assertEqual(traces, [])
         self.assertEqual(issues[0]["code"], "zero_base")
 
-    def test_negative_base_uses_customer_formula(self):
+    def test_negative_base_uses_absolute_growth(self):
         selected = {"revenue:2024": {}, "revenue:2025": {}}
         for index, product in enumerate(PRODUCTS):
             previous = -2 if index == 0 else 1
@@ -36,7 +36,7 @@ class RankingTests(unittest.TestCase):
         scores, traces, status, issues = {p: {} for p in PRODUCTS}, [], {"revenue": "数据待核对"}, []
         _score_economic("revenue", 2025, selected, scores, traces, status, issues)
         self.assertEqual(status["revenue"], "已计算")
-        self.assertEqual(next(t for t in traces if t["product"] == PRODUCTS[0])["steps"][2]["value"], -0.5)
+        self.assertEqual(next(t for t in traces if t["product"] == PRODUCTS[0])["steps"][2]["value"], 0.5)
         self.assertTrue(any(i["code"] == "negative_base" for i in issues))
 
 
