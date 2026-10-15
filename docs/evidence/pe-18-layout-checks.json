@@ -1,0 +1,186 @@
+{
+  "before": [
+    {
+      "width": 940,
+      "model": 10,
+      "tableTop": 736.578125
+    },
+    {
+      "width": 1333,
+      "model": 10,
+      "tableTop": 653.9296875
+    },
+    {
+      "width": 1333,
+      "model": 9,
+      "tableTop": 653.9296875
+    },
+    {
+      "width": 940,
+      "model": 9,
+      "tableTop": 736.578125
+    }
+  ],
+  "after": [
+    {
+      "width": 940,
+      "model": 9,
+      "tableTop": 586.6796875
+    },
+    {
+      "width": 940,
+      "model": 10,
+      "tableTop": 586.6796875
+    },
+    {
+      "width": 1333,
+      "model": 10,
+      "tableTop": 553.53125
+    },
+    {
+      "width": 1333,
+      "model": 9,
+      "tableTop": 553.53125
+    }
+  ],
+  "horizontal": [
+    {
+      "model": 9,
+      "width": 940,
+      "measurement": {
+        "anchors": [
+          {
+            "inside": true,
+            "left": 300,
+            "right": 440,
+            "text": "OnePark"
+          },
+          {
+            "inside": true,
+            "left": 748,
+            "right": 836,
+            "text": "100.0"
+          },
+          {
+            "inside": true,
+            "left": 836,
+            "right": 908,
+            "text": "1"
+          }
+        ],
+        "clientWidth": 656,
+        "columnCount": 13,
+        "pageWidth": 940,
+        "scrollLeft": 880,
+        "scrollWidth": 1536,
+        "tableTop": 47.6796875,
+        "viewport": 940
+      }
+    },
+    {
+      "model": 10,
+      "width": 940,
+      "measurement": {
+        "anchors": [
+          {
+            "inside": true,
+            "left": 300,
+            "right": 440,
+            "text": "OnePark"
+          },
+          {
+            "inside": true,
+            "left": 748,
+            "right": 836,
+            "text": "98.0"
+          },
+          {
+            "inside": true,
+            "left": 836,
+            "right": 908,
+            "text": "1"
+          }
+        ],
+        "clientWidth": 656,
+        "columnCount": 14,
+        "pageWidth": 940,
+        "scrollLeft": 940,
+        "scrollWidth": 1668,
+        "tableTop": 22.1796875,
+        "viewport": 940
+      }
+    },
+    {
+      "model": 10,
+      "width": 1333,
+      "measurement": {
+        "anchors": [
+          {
+            "inside": true,
+            "left": 328,
+            "right": 468,
+            "text": "OnePark"
+          },
+          {
+            "inside": true,
+            "left": 1141,
+            "right": 1229,
+            "text": "98.0"
+          },
+          {
+            "inside": true,
+            "left": 1229,
+            "right": 1301,
+            "text": "1"
+          }
+        ],
+        "clientWidth": 1021,
+        "columnCount": 14,
+        "pageWidth": 1333,
+        "scrollLeft": 647,
+        "scrollWidth": 1668,
+        "tableTop": 47.53125,
+        "viewport": 1333
+      }
+    },
+    {
+      "model": 9,
+      "width": 1333,
+      "measurement": {
+        "anchors": [
+          {
+            "inside": true,
+            "left": 328,
+            "right": 468,
+            "text": "OnePark"
+          },
+          {
+            "inside": true,
+            "left": 1141,
+            "right": 1229,
+            "text": "100.0"
+          },
+          {
+            "inside": true,
+            "left": 1229,
+            "right": 1301,
+            "text": "1"
+          }
+        ],
+        "clientWidth": 1021,
+        "columnCount": 13,
+        "pageWidth": 1333,
+        "scrollLeft": 30.5,
+        "scrollWidth": 1536,
+        "tableTop": 47.53125,
+        "viewport": 1333
+      }
+    }
+  ],
+  "otherChecks": {
+    "partial": "8 / 9 项，80 / 100 分，总分与排名待完成",
+    "dimensionSummaryColumns": 0,
+    "radarProducts": 13,
+    "consoleErrors": 0
+  }
+}

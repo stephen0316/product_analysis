@@ -1,0 +1,205 @@
+[
+  {
+    "label": "经营增长表现",
+    "hint": "revenue",
+    "text": "别只看今年挣了多少，也看比去年长了多少：先用今年收入排一遍、用同比增幅再排一遍，各按名次给分。把两项得分各按一半合起来，再按综合分从高到低排一遍给分。同比就是今年减去年再除以去年绝对值，增减方向保留。",
+    "value": {
+      "rule": {
+        "execution_plan": {
+          "version": "semantic-plan-v1",
+          "source_metric": "revenue",
+          "strategy": "economic",
+          "inputs": [
+            {
+              "field": "revenue",
+              "period": "previous_year"
+            },
+            {
+              "field": "revenue",
+              "period": "current_year"
+            }
+          ],
+          "data_mode": "source",
+          "ranking_direction": "descending",
+          "final_ranking_direction": "descending",
+          "tie_method": "competition",
+          "time_window": "latest_two_years",
+          "aggregation": "equal_scores",
+          "growth_denominator": "absolute_previous",
+          "growth_preserve_sign": true,
+          "cap_percent": null,
+          "first_score": null,
+          "rank_decrement": null,
+          "unsupported_features": [],
+          "questions": []
+        },
+        "normalized_summary": "经营增长表现是基于今年收入排名和同比增幅排名，将两项得分各占一半加权平均后，再进行综合得分排名。",
+        "confidence": 0.9
+      },
+      "provider": "gemini",
+      "model": "gemini-2.5-flash-lite",
+      "parsed_at": "2026-10-15T01:41:41.110130+00:00"
+    },
+    "check": {
+      "key": "check",
+      "executable": true,
+      "errors": [],
+      "calculation_type": "revenue",
+      "normalized_summary": "当年值与同比增幅分别从高到低排名赋分；增幅为当年与上年之差除以上年值绝对值，保留正负号；两项得分等权平均后，按平均分从高到低再次排名赋分。首名10分，每名递减0.5分；并列同名次、后续名次跳位。"
+    },
+    "passed": true,
+    "engine_verification": {
+      "first_product_score": 10,
+      "last_product_score": 4,
+      "negative_growth": -0.5,
+      "passed": true
+    }
+  },
+  {
+    "label": "收入／增幅",
+    "hint": "revenue",
+    "text": "今年营收金额和同比增长率分别按从低到高的顺序评名次、给分；两个分数取算术平均，再以平均分高的排前面，重新按名次给分。同比的分母取上年收入绝对值，不把负增长变成正增长。",
+    "value": {
+      "rule": {
+        "execution_plan": {
+          "version": "semantic-plan-v1",
+          "source_metric": "revenue",
+          "strategy": "economic",
+          "inputs": [
+            {
+              "field": "revenue",
+              "period": "current_year"
+            },
+            {
+              "field": "revenue",
+              "period": "previous_year"
+            }
+          ],
+          "data_mode": "source",
+          "ranking_direction": "ascending",
+          "final_ranking_direction": "descending",
+          "tie_method": "competition",
+          "time_window": "latest_two_years",
+          "aggregation": "equal_scores",
+          "growth_denominator": "absolute_previous",
+          "growth_preserve_sign": true,
+          "cap_percent": null,
+          "first_score": null,
+          "rank_decrement": null,
+          "unsupported_features": [],
+          "questions": []
+        },
+        "normalized_summary": "今年营收金额和同比增长率分别按从低到高的顺序评名次、给分；两个分数取算术平均，再以平均分高的排前面，重新按名次给分。同比的分母取上年收入绝对值，不把负增长变成正增长。",
+        "confidence": 1.0
+      },
+      "provider": "gemini",
+      "model": "gemini-2.5-flash-lite",
+      "parsed_at": "2026-10-15T01:41:43.105652+00:00"
+    },
+    "check": {
+      "key": "check",
+      "executable": true,
+      "errors": [],
+      "calculation_type": "revenue",
+      "normalized_summary": "当年值与同比增幅分别从低到高排名赋分；增幅为当年与上年之差除以上年值绝对值，保留正负号；两项得分等权平均后，按平均分从高到低再次排名赋分。首名10分，每名递减0.5分；并列同名次、后续名次跳位。"
+    },
+    "passed": true,
+    "engine_verification": {
+      "first_product_score": 4,
+      "last_product_score": 10,
+      "negative_growth": -0.5,
+      "passed": true
+    }
+  },
+  {
+    "label": "品质服务",
+    "hint": "quality",
+    "text": "满意度越高分越高，按名次给分；投诉不到五次的产品额外奖励两分。",
+    "value": {
+      "rule": {
+        "execution_plan": {
+          "version": "semantic-plan-v1",
+          "source_metric": "quality",
+          "strategy": "single",
+          "inputs": [
+            {
+              "field": "quality",
+              "period": "current_year"
+            }
+          ],
+          "data_mode": "source",
+          "ranking_direction": "descending",
+          "final_ranking_direction": "not_applicable",
+          "tie_method": "competition",
+          "time_window": "latest_year",
+          "aggregation": "none",
+          "growth_denominator": "not_applicable",
+          "growth_preserve_sign": null,
+          "cap_percent": null,
+          "first_score": null,
+          "rank_decrement": null,
+          "unsupported_features": [
+            "额外奖励两分"
+          ],
+          "questions": []
+        },
+        "normalized_summary": "品质服务指标，满意度越高分越高，按名次给分；投诉不到五次的产品额外奖励两分。",
+        "confidence": 0.9
+      },
+      "provider": "gemini",
+      "model": "gemini-2.5-flash-lite",
+      "parsed_at": "2026-10-15T01:41:44.971758+00:00"
+    },
+    "check": {
+      "executable": false,
+      "errors": [
+        "已理解规则，但当前尚不支持：额外奖励两分"
+      ]
+    },
+    "passed": true
+  },
+  {
+    "label": "新指标",
+    "hint": null,
+    "text": "用那个数值评一下，排出结果。",
+    "value": {
+      "rule": {
+        "execution_plan": {
+          "version": "semantic-plan-v1",
+          "source_metric": null,
+          "strategy": "unsupported",
+          "inputs": [],
+          "data_mode": "source",
+          "ranking_direction": "unclear",
+          "final_ranking_direction": "not_applicable",
+          "tie_method": "unclear",
+          "time_window": "unclear",
+          "aggregation": "other",
+          "growth_denominator": "not_applicable",
+          "growth_preserve_sign": null,
+          "cap_percent": null,
+          "first_score": null,
+          "rank_decrement": null,
+          "unsupported_features": [
+            "无法确定具体数值指标"
+          ],
+          "questions": [
+            "请明确“那个数值”具体指哪个指标？"
+          ]
+        },
+        "normalized_summary": "用那个数值评一下，排出结果。",
+        "confidence": 0.8
+      },
+      "provider": "gemini",
+      "model": "gemini-2.5-flash-lite",
+      "parsed_at": "2026-10-15T01:41:46.569329+00:00"
+    },
+    "check": {
+      "executable": false,
+      "errors": [
+        "请明确“那个数值”具体指哪个指标？"
+      ]
+    },
+    "passed": true
+  }
+]

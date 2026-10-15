@@ -160,7 +160,7 @@ export function SystemSelect({ value, children, onChange, label, disabled = fals
       key={`${option.value}-${index}`}
       id={`${listId}-${index}`}
       data-option-index={index}
-      className={'system-select-option' + (index === activeIndex ? ' active' : '') + (option.disabled ? ' disabled' : '')}
+      className={'system-select-option' + (index === activeIndex ? ' active' : '') + (option.disabled ? ' disabled' : '') + (option.value === '__manage_categories__' ? ' manage-action' : '')}
       role="option"
       aria-selected={option.value === value}
       aria-disabled={option.disabled || undefined}

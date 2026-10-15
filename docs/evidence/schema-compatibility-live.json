@@ -1,0 +1,97 @@
+{
+  "sample": "已授权四条样例中的第1条",
+  "summary": "别只看今年挣了多少，也看比去年长了多少：先用今年收入排一遍、用同比增幅再排一遍，各按名次给分。把两项得分各按一半合起来，再按综合分从高到低排一遍给分。同比就是今年减去年再除以去年绝对值，增减方向保留。",
+  "model": "gemini-2.5-flash-lite",
+  "parsed_at": "2026-10-15T02:04:46.435863+00:00",
+  "passed": true,
+  "rule": {
+    "execution_plan": {
+      "version": "semantic-plan-v1",
+      "source_metric": "revenue",
+      "strategy": "economic",
+      "inputs": [
+        {
+          "field": "revenue",
+          "period": "current_year"
+        },
+        {
+          "field": "revenue",
+          "period": "previous_year"
+        }
+      ],
+      "data_mode": "source",
+      "ranking_direction": "descending",
+      "final_ranking_direction": "descending",
+      "tie_method": "competition",
+      "time_window": "latest_two_years",
+      "aggregation": "equal_scores",
+      "growth_denominator": "absolute_previous",
+      "growth_preserve_sign": true,
+      "cap_percent": null,
+      "first_score": null,
+      "rank_decrement": null,
+      "unsupported_features": [],
+      "questions": []
+    },
+    "normalized_summary": "经营增长表现",
+    "confidence": 1.0
+  },
+  "compiled": {
+    "execution_plan": {
+      "version": "semantic-plan-v1",
+      "source_metric": "revenue",
+      "strategy": "economic",
+      "inputs": [
+        {
+          "field": "revenue",
+          "period": "current_year"
+        },
+        {
+          "field": "revenue",
+          "period": "previous_year"
+        }
+      ],
+      "data_mode": "source",
+      "ranking_direction": "descending",
+      "final_ranking_direction": "descending",
+      "tie_method": "competition",
+      "time_window": "latest_two_years",
+      "aggregation": "equal_scores",
+      "growth_denominator": "absolute_previous",
+      "growth_preserve_sign": true,
+      "cap_percent": null,
+      "first_score": null,
+      "rank_decrement": null,
+      "unsupported_features": [],
+      "questions": []
+    },
+    "normalized_summary": "当年值与同比增幅分别从高到低排名赋分；增幅为当年与上年之差除以上年值绝对值，保留正负号；两项得分等权平均后，按平均分从高到低再次排名赋分。首名10分，每名递减0.5分；并列同名次、后续名次跳位。",
+    "ranking_direction": "descending",
+    "time_window": "latest_two_years",
+    "tie_method": "competition",
+    "parameters": {
+      "first_score": null,
+      "rank_decrement": null,
+      "cap_percent": null,
+      "growth_denominator_uses_absolute_value": true
+    },
+    "required_inputs": [
+      {
+        "name": "评估年度收入",
+        "concept": "revenue",
+        "period": "current_year",
+        "required": true
+      },
+      {
+        "name": "上一年度收入",
+        "concept": "revenue",
+        "period": "previous_year",
+        "required": true
+      }
+    ],
+    "steps": [],
+    "assumptions": [],
+    "warnings": [],
+    "confidence": 1
+  }
+}
