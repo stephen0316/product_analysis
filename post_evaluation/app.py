@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import BytesIO
 import hashlib
+import os
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,14 @@ from . import store
 
 
 app = FastAPI(title="产品后评估", version="0.1.0")
+
+
+@app.get("/api/health")
+def health():
+    """Check local database access without calling the model provider."""
+    with store.connect() as db:
+        db.execute("SELECT 1").fetchone()
+    return {"status": "ok", "revision": os.environ.get("APP_REVISION", "local")}
 
 
 class RunInput(BaseModel):

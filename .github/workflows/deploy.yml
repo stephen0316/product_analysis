@@ -1,0 +1,149 @@
+name: Check, package and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PRODUCT_EVAL_DATA_DIR: /tmp/product-evaluation-tests
+      GEMINI_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m unittest discover -s tests -v
+      - run: npm ci
+        working-directory: frontend
+      - run: node --test tests/*.test.mjs
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - run: bash -n scripts/deploy.sh
+
+  package:
+    needs: check
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.publish.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - id: image
+        name: Set commit image tag
+        shell: bash
+        run: echo "ref=ghcr.io/${GITHUB_REPOSITORY,,}:sha-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          platforms: linux/amd64
+          tags: ${{ steps.image.outputs.ref }}
+          build-args: |
+            APP_REVISION=${{ github.sha }}
+            APP_SOURCE=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke check packaged application
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name evaluation-smoke -p 127.0.0.1:18765:8765 "$IMAGE"
+          trap 'docker logs evaluation-smoke; docker rm -f evaluation-smoke' EXIT
+          for attempt in $(seq 1 60); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' evaluation-smoke)
+            if [ "$status" = healthy ]; then break; fi
+            if [ "$status" = unhealthy ]; then exit 1; fi
+            sleep 2
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' evaluation-smoke)" = healthy
+          curl --fail --silent http://127.0.0.1:18765/ | grep -q '<!doctype html>'
+          curl --fail --silent http://127.0.0.1:18765/api/config > /dev/null
+          docker exec evaluation-smoke test -f /app/post_evaluation/templates/product-evaluation-export-template.xlsx
+      - name: Publish checked image
+        id: publish
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE"
+          ref=$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE")
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: package
+    # Enable only after the administrator has configured and tested the host.
+    if: vars.AUTO_DEPLOY == 'true' && github.event.repository.private && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64, product-evaluation-deploy]
+    environment: production
+    timeout-minutes: 15
+    concurrency:
+      group: product-evaluation-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    env:
+      PRODUCT_EVAL_DEPLOY_DIR: ${{ vars.PRODUCT_EVAL_DEPLOY_DIR || '/opt/product-evaluation' }}
+    steps:
+      - name: Skip an obsolete release
+        id: current
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const {data} = await github.rest.git.getRef({...context.repo, ref: 'heads/main'});
+            const current = data.object.sha === context.sha;
+            if (!current) core.notice('A newer main commit exists; skipping this deployment.');
+            return current;
+      - uses: actions/checkout@v4
+        if: steps.current.outputs.result == 'true'
+        with:
+          persist-credentials: false
+      - uses: docker/login-action@v3
+        if: steps.current.outputs.result == 'true'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Back up, switch image and check health
+        if: steps.current.outputs.result == 'true'
+        env:
+          IMAGE: ${{ needs.package.outputs.image }}
+        run: bash scripts/deploy.sh "$IMAGE"

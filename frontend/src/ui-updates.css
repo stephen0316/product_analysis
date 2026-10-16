@@ -142,7 +142,8 @@
 .system-select[aria-expanded="true"] > svg { transform: rotate(180deg); }
 .system-select:hover:not(:disabled) { border-color: var(--ink); }
 .system-select:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-.system-select:disabled { opacity: .55; cursor: not-allowed; }
+.system-select:disabled { opacity: 1; cursor: not-allowed; background: #ebede9; color: #777f7c; border-color: var(--line); }
+.system-select:disabled > svg, .system-select:disabled > .select-placeholder { color: inherit; }
 .select-placeholder { color: #65716e; }
 .system-select-menu {
   position: fixed;

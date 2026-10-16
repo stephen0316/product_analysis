@@ -1,0 +1,27 @@
+services:
+  app:
+    image: ${PRODUCT_EVAL_IMAGE:-product-evaluation:local}
+    restart: unless-stopped
+    init: true
+    env_file:
+      - .env
+    environment:
+      PRODUCT_EVAL_DATA_DIR: /app/local_data
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${PRODUCT_EVAL_PORT:-8765}:8765"
+    volumes:
+      - data:/app/local_data
+    stop_grace_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  data:
