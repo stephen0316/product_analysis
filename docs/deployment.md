@@ -1,5 +1,7 @@
 # 公司服务器部署与 GitHub 自动发布
 
+> 2026-10-19 已确认：公司内网无法访问 GitHub，且已有内部 GitLab / Jenkins / Harbor 等平台。当前应采用 [内网自动部署方案](deployment-intranet.md)；本文及 GitHub Actions 流水线保留作为其他网络环境的参考，不代表当前内网可用。
+
 本方案实现：向 `main` 推送代码 → GitHub 自动测试 → 构建并检查镜像 → 发布到 GHCR → 公司服务器领取任务 → 备份数据 → 更新容器 → 检查运行状态。
 
 仓库侧配置已提供。服务器网络、GitHub 权限和首次部署仍需技术人员接入并实测；这份文档不代表生产环境已经启用。
@@ -14,7 +16,7 @@
 | 出站网络 | GitHub、GitHub Actions 及其依赖域名、GHCR 镜像下载域名，可通过 HTTPS 443 访问 |
 | 入站网络 | 部署流程无需开放公网 SSH；用户通过公司已有反向代理访问应用 |
 | 运行目录 | 默认 `/opt/product-evaluation`，Runner 服务账户可写 |
-| 模型调用 | 服务器可访问 Gemini；当前代码固定使用 Google 地址，内部网关需要另做适配 |
+| 模型调用 | 服务器可访问已配置模型服务；公司网关使用 LLM_*，仅配置 GEMINI_* 时使用 Google 原生接口 |
 | 用户访问 | 通过公司统一登录或已有访问网关保护页面与全部 API；应用当前没有账户隔离 |
 
 Runner 主动连接 GitHub。不要在 GitHub 界面填一个内网 IP 并期望云端任务直接访问它。完整网络白名单以 [GitHub Runner 通信要求](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication) 为准，包括镜像和 Actions 的下载域名。
@@ -70,8 +72,9 @@ chmod 600 /opt/product-evaluation/.env
 编辑 `/opt/product-evaluation/.env`：
 
 ```dotenv
-GEMINI_API_KEY=实际服务端密钥
-GEMINI_MODEL=gemini-2.5-flash
+LLM_API_KEY=实际公司网关密钥
+LLM_BASE_URL=https://onerouter.cmaiot.cn/v1
+LLM_MODEL=qwen3.7-max
 PRODUCT_EVAL_PORT=8765
 ```
 
@@ -113,7 +116,7 @@ location / {
 
 1. 先下载目标镜像，下载失败不停止原服务。
 2. 停止原服务，把整个数据目录打包到 `/opt/product-evaluation/backups/*-pre-deploy.tar.gz`，包括数据库、上传文件与已生成报告。
-3. 启动目标镜像，检查容器健康状态。`/api/health` 检查本地数据库访问，不调用 Gemini。
+3. 启动目标镜像，检查容器健康状态。`/api/health` 检查本地数据库访问，不调用模型服务。
 4. 备份或更新失败时，尝试使用旧 Compose 文件和镜像恢复服务；工作流仍标记失败。
 
 **恢复旧镜像不等于恢复数据库。** 新代码可能已进行数据迁移；脚本不会自动还原数据库，避免丢弃上线后的业务写入。若旧版本也不能运行，需要技术人员审查迁移兼容性、日志，并在保留当前数据副本后选择恢复备份。健康检查也不能替代真实业务验收。
@@ -145,9 +148,11 @@ curl --fail http://127.0.0.1:8765/api/health
 - `deploy` 为 **Skipped**：检查 `AUTO_DEPLOY`、仓库是否私有、是否为 `main`，或该提交是否已过时。
 - 长期 **Queued**：检查 Runner 服务和四个标签是否匹配。
 - 拉镜像报 403：检查本仓库 Actions 对 GHCR 包的读取权限。
-- Gemini 不可用：检查服务器密钥及出站网络；健康检查成功不代表模型接口可达。
+- 模型服务不可用：检查服务器密钥及出站网络；健康检查成功不代表模型接口可达。
 - 新镜像失败：查看 Actions 及服务日志、确认是否已恢复旧应用。
 
 停止自动发布只需把 `AUTO_DEPLOY` 改成 `false`；已运行的应用继续提供服务。正在执行的部署不会因为变量改变立即停止。
 
 参考：[GitHub 部署控制](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/control-deployments)、[GHCR 镜像发布](https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images)、[Docker Compose 生产部署](https://docs.docker.com/compose/how-tos/production/)。
+
+公司服务器如需沿用副本的 `product-fenxi` 容器、4100 端口及源码挂载方式，请使用独立的 [公司服务器配置](deployment-company.md)。该方式不使用本文的 `scripts/deploy.sh`，不能混用两套服务名与数据卷。

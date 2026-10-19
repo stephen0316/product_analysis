@@ -171,12 +171,12 @@ class SemanticRulesTests(unittest.TestCase):
         captured = {}
         def fake_urlopen(request, **kwargs):
             captured.update(json.loads(request.data.decode()))
-            return io.BytesIO(json.dumps({"candidates": [{"content": {"parts": [{"text": json.dumps(raw)}]}}]}).encode())
+            return io.BytesIO(json.dumps({"choices": [{"finish_reason": "STOP", "message": {"content": json.dumps(raw, ensure_ascii=False)}}]}).encode())
         from post_evaluation.gemini_rules import parse_rule_summary
-        with patch.dict(os.environ, GEMINI_API_KEY="test-key"), patch("post_evaluation.gemini_rules.urlopen", side_effect=fake_urlopen):
+        with patch.dict(os.environ, LLM_API_KEY="test-key"), patch("post_evaluation.llm_client.urlopen", side_effect=fake_urlopen):
             value = parse_rule_summary("经营增长表现", "综合比较规模与同比成长，把分数平均后再排。", source_hint="revenue")
         self.assertEqual(value["rule"]["execution_plan"], example_plan())
-        schema = captured["generationConfig"]["responseJsonSchema"]
+        schema = json.loads(captured["messages"][0]["content"].rsplit("\n", 1)[1])
         self.assertIn("execution_plan", schema["required"])
         self.assertNotIn("formula", json.dumps(schema))
         self.assertNotIn("$ref", json.dumps(schema))
@@ -187,7 +187,7 @@ class SemanticRulesTests(unittest.TestCase):
         input_schema = schema["properties"]["execution_plan"]["properties"]["inputs"]["items"]
         self.assertIn("year", input_schema["required"])
         self.assertEqual(input_schema["properties"]["year"]["type"], ["integer", "null"])
-        self.assertIn("research_cost_resource_pool", captured["contents"][0]["parts"][0]["text"])
+        self.assertIn("research_cost_resource_pool", captured["messages"][1]["content"])
 
     def test_protocol_version_is_owned_by_server_and_stored_versions_are_checked(self):
         plan = example_plan()

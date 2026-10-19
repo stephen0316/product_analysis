@@ -1,14 +1,10 @@
 from __future__ import annotations
 
 import json
-import os
-import ssl
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
-import certifi
-
+from . import llm_client
 from .semantic_rules import response_schema, source_catalog, normalize_interpretation
 
 
@@ -18,10 +14,6 @@ class GeminiNotConfigured(RuntimeError):
 
 class GeminiRuleError(RuntimeError):
     pass
-
-
-DEFAULT_MODEL = "gemini-2.5-flash"
-API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 
 
 RULE_SCHEMA = response_schema()
@@ -78,21 +70,36 @@ WEIGHT_GOAL_SYSTEM_INSTRUCTION = """你是产品后评估目标解析器。你�
 若目标不包含明确的产品、方向或移动名次数，应在 warnings 中说明，不要补造业务事实。输出必须符合给定 JSON Schema。"""
 
 
+def _transport_error(exc: Exception) -> GeminiRuleError:
+    if isinstance(exc, HTTPError):
+        message = "模型请求失败"
+        try:
+            detail = json.loads(exc.read().decode("utf-8")).get("error", {}).get("message")
+            if detail:
+                detail = detail.replace(llm_client.api_key(), "[REDACTED]")
+                if exc.code == 400 and "schema" in detail.lower() and any(
+                        term in detail.lower() for term in ("too many states", "complexity", "too complex")):
+                    message = "AI 暂未完成识别：规则识别接口的输出格式超出服务支持范围，请稍后重试；无需修改规则文字"
+                else:
+                    message = f"模型请求失败：{detail}"
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            pass
+        return GeminiRuleError(message)
+    return GeminiRuleError("无法连接模型服务，请检查网络后重试")
+
+
 def parser_status() -> dict:
     return {
-        "configured": bool(os.environ.get("GEMINI_API_KEY", "").strip()),
-        "provider": "gemini",
-        "model": os.environ.get("GEMINI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL,
+        "configured": llm_client.configured(),
+        "provider": llm_client.provider(),
+        "model": llm_client.model(),
     }
 
 
 def parse_rule_summary(dimension_label: str, summary: str, *, source_hint: str | None = None) -> dict:
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        raise GeminiNotConfigured("Gemini 尚未配置，请先设置 GEMINI_API_KEY 并重启后端服务")
+    if not llm_client.configured():
+        raise GeminiNotConfigured("AI 规则识别尚未配置，请先设置 LLM_API_KEY 或 GEMINI_API_KEY 并重启后端服务")
 
-    model = os.environ.get("GEMINI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    endpoint = f"{API_ROOT}/models/{model}:generateContent"
     prompt = (
         "请理解并提取以下规则的业务计算方案。\n"
         f"指标名称：{dimension_label.strip()}\n"
@@ -100,104 +107,39 @@ def parse_rule_summary(dimension_label: str, summary: str, *, source_hint: str |
         f"规则摘要：{summary.strip()}\n"
         "可用原始数据和计算能力目录：" + json.dumps(source_catalog(), ensure_ascii=False)
     )
-    payload = {
-        "systemInstruction": {"parts": [{"text": SYSTEM_INSTRUCTION}]},
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-            "responseJsonSchema": RULE_SCHEMA,
-        },
-    }
-    request = Request(
-        endpoint,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        method="POST",
-    )
     try:
-        context = ssl.create_default_context(cafile=certifi.where())
-        with urlopen(request, timeout=30, context=context) as response:
-            raw = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        message = "Gemini 请求失败"
-        try:
-            detail = json.loads(exc.read().decode("utf-8")).get("error", {}).get("message")
-            if detail:
-                detail = detail.replace(api_key, "[REDACTED]")
-                if exc.code == 400 and "schema" in detail.lower() and any(term in detail.lower() for term in ("too many states", "complexity", "too complex")):
-                    message = "Gemini 暂未完成识别：规则识别接口的输出格式超出服务支持范围，请稍后重试；无需修改规则文字"
-                else:
-                    message = f"Gemini 请求失败：{detail}"
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            pass
-        raise GeminiRuleError(message) from exc
-    except (URLError, TimeoutError) as exc:
-        raise GeminiRuleError("无法连接 Gemini，请检查网络后重试") from exc
-
-    try:
-        text = raw["candidates"][0]["content"]["parts"][0]["text"]
-        rule = normalize_interpretation(json.loads(text))
+        rule = normalize_interpretation(llm_client.chat_json(
+            SYSTEM_INSTRUCTION, prompt, RULE_SCHEMA, temperature=0, timeout=30))
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise _transport_error(exc) from exc
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise GeminiRuleError("AI 未返回完整的结构化计算方案，请重试识别") from exc
 
     return {
         "rule": rule,
-        "provider": "gemini",
-        "model": model,
+        "provider": llm_client.provider(),
+        "model": llm_client.model(),
         "parsed_at": datetime.now(timezone.utc).isoformat(),
     }
 
 
 def parse_weight_goal(objective: str, products: list[str]) -> dict:
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key:
-        raise GeminiNotConfigured("Gemini 尚未配置，请先设置 GEMINI_API_KEY 并重启后端服务")
+    if not llm_client.configured():
+        raise GeminiNotConfigured("AI 目标解析尚未配置，请先设置 LLM_API_KEY 或 GEMINI_API_KEY 并重启后端服务")
 
-    model = os.environ.get("GEMINI_MODEL", DEFAULT_MODEL).strip() or DEFAULT_MODEL
-    endpoint = f"{API_ROOT}/models/{model}:generateContent"
     prompt = (
         "请解析以下产品后评估排名调整目标。\n"
         f"可选产品线：{'、'.join(products)}\n"
         f"用户目标：{objective.strip()}\n"
         "只提取目标产品、前移或后移方向以及移动名次数，不要设计权重方案。"
     )
-    payload = {
-        "systemInstruction": {"parts": [{"text": WEIGHT_GOAL_SYSTEM_INSTRUCTION}]},
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-            "responseJsonSchema": WEIGHT_GOAL_SCHEMA,
-        },
-    }
-    request = Request(
-        endpoint,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-        method="POST",
-    )
     try:
-        context = ssl.create_default_context(cafile=certifi.where())
-        with urlopen(request, timeout=30, context=context) as response:
-            raw = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        message = "Gemini 请求失败"
-        try:
-            detail = json.loads(exc.read().decode("utf-8")).get("error", {}).get("message")
-            if detail:
-                message = f"Gemini 请求失败：{detail.replace(api_key, '[REDACTED]')}"
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            pass
-        raise GeminiRuleError(message) from exc
-    except (URLError, TimeoutError) as exc:
-        raise GeminiRuleError("无法连接 Gemini，请检查网络后重试") from exc
-
-    try:
-        text = raw["candidates"][0]["content"]["parts"][0]["text"]
-        goal = json.loads(text)
-    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-        raise GeminiRuleError("Gemini 未返回可识别的结构化目标") from exc
+        goal = llm_client.chat_json(
+            WEIGHT_GOAL_SYSTEM_INSTRUCTION, prompt, WEIGHT_GOAL_SCHEMA, temperature=0, timeout=30)
+    except (HTTPError, URLError, TimeoutError) as exc:
+        raise _transport_error(exc) from exc
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise GeminiRuleError("AI 未返回可识别的结构化目标") from exc
 
     if goal.get("target_product") not in products:
         raise GeminiRuleError("未能从目标中识别有效的产品线")
@@ -209,7 +151,7 @@ def parse_weight_goal(objective: str, products: list[str]) -> dict:
 
     return {
         "goal": goal,
-        "provider": "gemini",
-        "model": model,
+        "provider": llm_client.provider(),
+        "model": llm_client.model(),
         "parsed_at": datetime.now(timezone.utc).isoformat(),
     }

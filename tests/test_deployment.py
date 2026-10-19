@@ -137,7 +137,7 @@ class DeploymentTests(unittest.TestCase):
         from post_evaluation.app import app
 
         with patch.dict(os.environ, PRODUCT_EVAL_DATA_DIR=str(self.root / 'data'), APP_REVISION='test-revision'):
-            with patch('post_evaluation.gemini_rules.urlopen', side_effect=AssertionError('Health must stay local')):
+            with patch('post_evaluation.llm_client.urlopen', side_effect=AssertionError('Health must stay local')):
                 response = TestClient(app).get('/api/health')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {'status': 'ok', 'revision': 'test-revision'})

@@ -4,18 +4,14 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
-import ssl
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime, timezone
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
-import certifi
-
+from . import llm_client
 from .constants import PRODUCTS
-from .gemini_rules import API_ROOT, DEFAULT_MODEL, GeminiNotConfigured, GeminiRuleError
+from .gemini_rules import GeminiNotConfigured, GeminiRuleError
 from .result_state import describe_result
 from .report_text import narrative_text
 
@@ -117,10 +113,6 @@ def validate_draft(draft: dict, evidence: dict) -> dict:
     return {**draft, "products": sorted(cleaned_rows, key=lambda row: PRODUCTS.index(row["product"]))}
 
 
-class EvaluationOutputError(ValueError):
-    """A retryable output error, distinct from transport/provider failures."""
-
-
 def _generate_product(product: dict, evidence: dict, model: str, key: str) -> dict:
     schema = deepcopy(SCHEMA["properties"]["products"]["items"])
     schema["properties"]["product"]["enum"] = [product["product"]]
@@ -135,31 +127,10 @@ def _generate_product(product: dict, evidence: dict, model: str, key: str) -> di
     last_error = "输出格式不完整"
     for attempt in range(2):
         instruction = SYSTEM + (f"\n上次输出问题：{last_error}。请重新生成，严格选择给定产品名和引用编号。" if attempt else "")
-        payload = {"systemInstruction": {"parts": [{"text": instruction}]},
-                   "contents": [{"role": "user", "parts": [{"text": json.dumps(context, ensure_ascii=False)}]}],
-                   "generationConfig": {"temperature": 0.2, "maxOutputTokens": 4096 if not attempt else 8192,
-                                        "responseMimeType": "application/json", "responseJsonSchema": schema}}
-        request = Request(f"{API_ROOT}/models/{model}:generateContent", method="POST",
-                          data=json.dumps(payload, ensure_ascii=False).encode(),
-                          headers={"Content-Type": "application/json", "x-goog-api-key": key})
         try:
-            with urlopen(request, timeout=60, context=ssl.create_default_context(cafile=certifi.where())) as response:
-                raw = json.loads(response.read().decode())
-            if not isinstance(raw, dict):
-                raise EvaluationOutputError("评价返回格式不完整")
-            candidates = raw.get("candidates")
-            if not candidates:
-                raise EvaluationOutputError("服务未返回评价正文")
-            candidate = candidates[0]
-            if not isinstance(candidate, dict):
-                raise EvaluationOutputError("评价返回格式不完整")
-            finish = candidate.get("finishReason")
-            if finish == "MAX_TOKENS":
-                raise EvaluationOutputError("评价输出被长度限制截断")
-            if finish not in (None, "STOP"):
-                raise EvaluationOutputError("评价被服务限制中止")
-            text = "".join(part.get("text", "") for part in candidate["content"]["parts"] if not part.get("thought"))
-            row = json.loads(text)
+            row = llm_client.chat_json(instruction, json.dumps(context, ensure_ascii=False), schema,
+                                       temperature=0.2, max_tokens=4096 if not attempt else 8192,
+                                       timeout=60, key=key, model_name=model)
             return validate_draft({"products": [row]}, validation_evidence)["products"][0]
         except HTTPError as exc:
             # Do not surface provider response bodies, business data or API keys.
@@ -168,8 +139,6 @@ def _generate_product(product: dict, evidence: dict, model: str, key: str) -> di
             raise GeminiRuleError("AI 评价连接超时或网络不可用，请重试；已有内容未更改") from exc
         except json.JSONDecodeError:
             last_error = "评价返回格式不完整"
-        except EvaluationOutputError as exc:
-            last_error = str(exc)
         except (KeyError, IndexError, TypeError):
             last_error = "评价返回缺少必要内容"
         except ValueError as exc:
@@ -179,15 +148,14 @@ def _generate_product(product: dict, evidence: dict, model: str, key: str) -> di
 
 
 def generate_evaluation_draft(run: dict, result: dict) -> dict:
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not key:
-        raise GeminiNotConfigured("AI 评价尚未配置；可先生成数据评价报告，或配置 GEMINI_API_KEY 后重试")
+    if not llm_client.configured():
+        raise GeminiNotConfigured("AI 评价尚未配置；可先生成数据评价报告，或配置 LLM_API_KEY 或 GEMINI_API_KEY 后重试")
     evidence = report_evidence(run, result)
     if any(not row["facts"] for row in evidence["products"]):
         raise GeminiRuleError("当前真实数据不足以生成全部产品评价，请先补充数据")
-    model = os.environ.get("GEMINI_REPORT_MODEL", os.environ.get("GEMINI_MODEL", DEFAULT_MODEL)).strip() or DEFAULT_MODEL
+    model = llm_client.report_model()
     pool = ThreadPoolExecutor(max_workers=3)
-    futures = [pool.submit(_generate_product, product, evidence, model, key) for product in evidence["products"]]
+    futures = [pool.submit(_generate_product, product, evidence, model, llm_client.api_key()) for product in evidence["products"]]
     try:
         rows = [future.result() for future in as_completed(futures)]
     finally:
@@ -197,5 +165,5 @@ def generate_evaluation_draft(run: dict, result: dict) -> dict:
     for row in draft["products"]:
         row["evidence_summary"] = [f"{fact['label']} {fact['value']}" for fact in evidence_by_product[row["product"]]
                                    if fact["id"] in row["evidence_ids"]]
-    return {"products": draft["products"], "signature": evidence["signature"], "provider": "gemini",
+    return {"products": draft["products"], "signature": evidence["signature"], "provider": llm_client.provider(),
             "model": model, "generated_at": datetime.now(timezone.utc).isoformat()}

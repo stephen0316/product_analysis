@@ -17,6 +17,7 @@ jobs:
     env:
       PRODUCT_EVAL_DATA_DIR: /tmp/product-evaluation-tests
       GEMINI_API_KEY: ""
+      LLM_API_KEY: ""
     steps:
       - uses: actions/checkout@v4
         with:

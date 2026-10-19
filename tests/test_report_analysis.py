@@ -21,6 +21,12 @@ from test_execution_boundary import calculate_sample
 
 
 class ReportAnalysisTests(unittest.TestCase):
+    def setUp(self):
+        gateway = patch.dict(os.environ, LLM_API_KEY="test-secret", GEMINI_API_KEY="",
+                             LLM_MODEL="test-model", LLM_REPORT_MODEL="report-model")
+        gateway.start()
+        self.addCleanup(gateway.stop)
+
     @classmethod
     def setUpClass(cls):
         cls.definition = default_model_definition()
@@ -79,22 +85,23 @@ class ReportAnalysisTests(unittest.TestCase):
         def provider(request, **kwargs):
             payload = json.loads(request.data)
             payloads.append(payload)
-            scope = json.loads(payload["contents"][0]["parts"][0]["text"])
+            scope = json.loads(payload["messages"][1]["content"])
             row = self.draft(scope)["products"][0]
-            return BytesIO(json.dumps({"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": json.dumps(row)}]}}]}).encode())
-        with patch.dict(os.environ, GEMINI_API_KEY="test-secret"), patch("post_evaluation.report_analysis.urlopen", side_effect=provider):
+            return BytesIO(json.dumps({"choices": [{"finish_reason": "STOP", "message": {"content": json.dumps(row)}}]}).encode())
+        with patch.dict(os.environ, LLM_API_KEY="test-secret"), patch("post_evaluation.llm_client.urlopen", side_effect=provider):
             draft = generate_evaluation_draft(self.report_run, self.result)
             self.assertEqual(draft["signature"], evidence["signature"])
             self.assertEqual(len(payloads), len(PRODUCTS))
             for payload in payloads:
-                text = payload["contents"][0]["parts"][0]["text"]
+                self.assertEqual(payload["model"], "report-model")
+                text = payload["messages"][1]["content"]
                 self.assertNotIn("source_name", text)
                 scope = json.loads(text)
                 self.assertEqual(len(scope["products"]), 1)
-                schema = payload["generationConfig"]["responseJsonSchema"]
+                schema = json.loads(payload["messages"][0]["content"].rsplit("\n", 1)[1])
                 self.assertEqual(schema["properties"]["product"]["enum"], [scope["products"][0]["product"]])
                 self.assertEqual(set(schema["properties"]["evidence_ids"]["items"]["enum"]), {f["id"] for f in scope["products"][0]["facts"]})
-        with patch.dict(os.environ, GEMINI_API_KEY=""):
+        with patch.dict(os.environ, LLM_API_KEY=""):
             with self.assertRaises(GeminiNotConfigured): generate_evaluation_draft(self.report_run, self.result)
 
     def test_retry_repairs_bad_reference_without_weakening_validation(self):
@@ -103,20 +110,21 @@ class ReportAnalysisTests(unittest.TestCase):
         row = self.draft({"products": [product]})["products"][0]
         bad = {**row, "evidence_ids": ["P1P1D2C31"]}
         def response(value):
-            return BytesIO(json.dumps({"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": json.dumps(value)}]}}]}).encode())
-        with patch("post_evaluation.report_analysis.urlopen", side_effect=[response(bad), response(row)]) as request:
+            return BytesIO(json.dumps({"choices": [{"finish_reason": "STOP", "message": {"content": json.dumps(value)}}]}).encode())
+        with patch("post_evaluation.llm_client.urlopen", side_effect=[response(bad), response(row)]) as request:
             result = _generate_product(product, evidence, "test-model", "test-secret")
             self.assertEqual(result["evidence_ids"], row["evidence_ids"])
             self.assertEqual(request.call_count, 2)
-        with patch("post_evaluation.report_analysis.urlopen", side_effect=[response(bad), response(bad)]):
+            self.assertEqual(json.loads(request.call_args.args[0].data)["model"], "test-model")
+        with patch("post_evaluation.llm_client.urlopen", side_effect=[response(bad), response(bad)]):
             with self.assertRaisesRegex(GeminiRuleError, "数据依据"):
                 _generate_product(product, evidence, "test-model", "test-secret")
 
     def test_truncation_is_distinguished_from_transport_errors(self):
         evidence = report_evidence(self.report_run, self.result)
         product = evidence["products"][0]
-        output = json.dumps({"candidates": [{"finishReason": "MAX_TOKENS"}]}).encode()
-        with patch("post_evaluation.report_analysis.urlopen", side_effect=[BytesIO(output), BytesIO(output)]):
+        output = json.dumps({"choices": [{"finish_reason": "length"}]}).encode()
+        with patch("post_evaluation.llm_client.urlopen", side_effect=[BytesIO(output), BytesIO(output)]):
             with self.assertRaisesRegex(GeminiRuleError, "截断"):
                 _generate_product(product, evidence, "test-model", "test-secret")
 

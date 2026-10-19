@@ -1,0 +1,36 @@
+services:
+  product-fenxi:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: product-fenxi:latest
+    container_name: product-fenxi
+    restart: unless-stopped
+    # 注意：服务器 runc 1.0.2 与 init:true + cap_drop:ALL + no-new-privileges 组合不兼容（exec permission denied），故不启用 init
+    env_file:
+      - .env
+    environment:
+      PRODUCT_EVAL_DATA_DIR: /app/local_data
+      TZ: Asia/Shanghai
+    ports:
+      - "4100:8765"
+    extra_hosts:
+      - "onerouter.cmaiot.cn:10.12.84.1"
+    volumes:
+      # 代码热挂载：更新 frontend/dist 立即生效；更新 post_evaluation/ 后执行 docker restart product-fenxi
+      - ./post_evaluation:/app/post_evaluation
+      - ./frontend/dist:/app/frontend/dist
+      - product-fenxi-storage:/app/local_data
+    stop_grace_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  product-fenxi-storage:

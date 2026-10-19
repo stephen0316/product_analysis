@@ -41,7 +41,7 @@ class RuleParserTests(unittest.TestCase):
         self.client = TestClient(app)
 
     def test_reports_missing_configuration_without_exposing_credentials(self):
-        with patch.dict(os.environ, {"GEMINI_API_KEY": ""}):
+        with patch.dict(os.environ, {"LLM_API_KEY": "", "GEMINI_API_KEY": ""}):
             config = self.client.get("/api/config")
             self.assertEqual(config.status_code, 200)
             self.assertFalse(config.json()["rule_parser"]["configured"])
@@ -52,9 +52,9 @@ class RuleParserTests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertNotIn("test-only-key", response.text)
 
-    def test_returns_schema_constrained_gemini_result(self):
+    def test_returns_schema_constrained_gateway_result(self):
         api_response = {
-            "candidates": [{"content": {"parts": [{"text": json.dumps({"normalized_summary": "按市场占有率排名赋分", "execution_plan": example_plan("market_share"), "confidence": .98}, ensure_ascii=False)}]}}]
+            "choices": [{"finish_reason": "STOP", "message": {"content": json.dumps({"normalized_summary": "按市场占有率排名赋分", "execution_plan": example_plan("market_share"), "confidence": .98}, ensure_ascii=False)}}]
         }
         captured = {}
 
@@ -65,8 +65,8 @@ class RuleParserTests(unittest.TestCase):
             captured["payload"] = json.loads(request.data.decode("utf-8"))
             return io.BytesIO(json.dumps(api_response, ensure_ascii=False).encode("utf-8"))
 
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-only-key", "GEMINI_MODEL": "gemini-2.5-flash"}):
-            with patch("post_evaluation.gemini_rules.urlopen", side_effect=fake_urlopen):
+        with patch.dict(os.environ, {"LLM_API_KEY": "test-only-key", "LLM_MODEL": "qwen3.7-max"}):
+            with patch("post_evaluation.llm_client.urlopen", side_effect=fake_urlopen):
                 response = self.client.post("/api/rules/parse", json={
                     "dimension_label": "市场份额",
                     "summary": "以市场占有率为依据，数值最大的产品排在最前，其余依次排列并赋分。",
@@ -75,19 +75,20 @@ class RuleParserTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["rule"]["ranking_direction"], "descending")
         self.assertEqual(response.json()["rule"]["required_inputs"][0]["concept"], "market_share")
-        self.assertEqual(response.json()["model"], "gemini-2.5-flash")
+        self.assertEqual(response.json()["model"], "qwen3.7-max")
         self.assertNotIn("test-only-key", captured["url"])
         self.assertEqual(captured["timeout"], 30)
+        self.assertEqual(captured["payload"]["model"], "qwen3.7-max")
+        self.assertEqual(response.json()["provider"], "openai")
         self.assertIsNotNone(captured["ssl_context"])
-        generation = captured["payload"]["generationConfig"]
-        self.assertEqual(generation["responseMimeType"], "application/json")
-        self.assertEqual(generation["responseJsonSchema"]["type"], "object")
-        self.assertIn("execution_plan", generation["responseJsonSchema"]["required"])
-        self.assertIn("不要把增幅", captured["payload"]["systemInstruction"]["parts"][0]["text"])
+        schema = json.loads(captured["payload"]["messages"][0]["content"].rsplit("\n", 1)[1])
+        self.assertEqual(schema["type"], "object")
+        self.assertIn("execution_plan", schema["required"])
+        self.assertIn("不要把增幅", captured["payload"]["messages"][0]["content"])
 
     def test_parses_weight_optimization_goal_without_calculating_weights(self):
         api_response = {
-            "candidates": [{"content": {"parts": [{"text": json.dumps({
+            "choices": [{"finish_reason": "STOP", "message": {"content": json.dumps({
                 "target_product": "千里眼",
                 "direction": "down",
                 "positions": 3,
@@ -95,7 +96,7 @@ class RuleParserTests(unittest.TestCase):
                 "assumptions": [],
                 "warnings": [],
                 "confidence": 1,
-            }, ensure_ascii=False)}]}}]
+            }, ensure_ascii=False)}}]
         }
         captured = {}
 
@@ -103,8 +104,8 @@ class RuleParserTests(unittest.TestCase):
             captured["payload"] = json.loads(request.data.decode("utf-8"))
             return io.BytesIO(json.dumps(api_response, ensure_ascii=False).encode("utf-8"))
 
-        with patch.dict(os.environ, {"GEMINI_API_KEY": "test-only-key", "GEMINI_MODEL": "gemini-2.5-flash"}):
-            with patch("post_evaluation.gemini_rules.urlopen", side_effect=fake_urlopen):
+        with patch.dict(os.environ, {"LLM_API_KEY": "test-only-key", "LLM_MODEL": "qwen3.7-max"}):
+            with patch("post_evaluation.llm_client.urlopen", side_effect=fake_urlopen):
                 from post_evaluation.gemini_rules import parse_weight_goal
                 result = parse_weight_goal("让千里眼排名后移三位", [
                     "OnePark", "芯片", "通信模组", "物联卡", "OneSec", "OneNET", "交通物流",
@@ -113,14 +114,14 @@ class RuleParserTests(unittest.TestCase):
 
         self.assertEqual(result["goal"]["target_product"], "千里眼")
         self.assertEqual(result["goal"]["positions"], 3)
-        self.assertIn("只提取目标产品", captured["payload"]["contents"][0]["parts"][0]["text"])
-        self.assertIn("不计算权重", captured["payload"]["systemInstruction"]["parts"][0]["text"])
+        self.assertIn("只提取目标产品", captured["payload"]["messages"][1]["content"])
+        self.assertIn("不计算权重", captured["payload"]["messages"][0]["content"])
 
     def test_schema_service_failure_is_not_reported_as_ambiguous_business_wording(self):
         from post_evaluation.gemini_rules import parse_rule_summary, GeminiRuleError
         detail = "The specified schema produces a constraint that has too many states for serving. test-only-key"
         error = HTTPError("https://generativelanguage.googleapis.com/", 400, "Bad Request", {}, io.BytesIO(json.dumps({"error": {"message": detail}}).encode()))
-        with patch.dict(os.environ, GEMINI_API_KEY="test-only-key"), patch("post_evaluation.gemini_rules.urlopen", side_effect=error) as request:
+        with patch.dict(os.environ, LLM_API_KEY="test-only-key"), patch("post_evaluation.llm_client.urlopen", side_effect=error) as request:
             with self.assertRaises(GeminiRuleError) as caught:
                 parse_rule_summary("经营表现", "按规模与成长综合评估。", source_hint="revenue")
         self.assertEqual(request.call_count, 1)
@@ -136,7 +137,7 @@ class RuleParserTests(unittest.TestCase):
         from post_evaluation.gemini_rules import parse_rule_summary, GeminiRuleError
         detail = "Permission denied test-only-key"
         error = HTTPError("https://generativelanguage.googleapis.com/", 403, "Forbidden", {}, io.BytesIO(json.dumps({"error": {"message": detail}}).encode()))
-        with patch.dict(os.environ, GEMINI_API_KEY="test-only-key"), patch("post_evaluation.gemini_rules.urlopen", side_effect=error):
+        with patch.dict(os.environ, LLM_API_KEY="test-only-key"), patch("post_evaluation.llm_client.urlopen", side_effect=error):
             with self.assertRaises(GeminiRuleError) as caught:
                 parse_rule_summary("经营表现", "按规模与成长综合评估。", source_hint="revenue")
         self.assertIn("Permission denied", str(caught.exception))

@@ -1,0 +1,117 @@
+[
+  {
+    "file": ".env.example",
+    "current_changed": false,
+    "copy_changed": true,
+    "merge": "copy-only"
+  },
+  {
+    "file": "README.md",
+    "current_changed": true,
+    "copy_changed": false,
+    "merge": "current-only"
+  },
+  {
+    "file": "docker-compose.yml",
+    "current_changed": false,
+    "copy_changed": true,
+    "merge": "copy-only"
+  },
+  {
+    "file": "docs/deployment-intranet.md",
+    "current_changed": true,
+    "copy_changed": false,
+    "merge": "current-only"
+  },
+  {
+    "file": "docs/deployment.md",
+    "current_changed": true,
+    "copy_changed": false,
+    "merge": "current-only"
+  },
+  {
+    "file": "frontend/src/main.tsx",
+    "current_changed": true,
+    "copy_changed": false,
+    "merge": "current-only"
+  },
+  {
+    "file": "frontend/src/reportText.ts",
+    "current_changed": true,
+    "copy_changed": false,
+    "merge": "current-only"
+  },
+  {
+    "file": "post_evaluation/ai_mapping.py",
+    "current_changed": false,
+    "copy_changed": true,
+    "merge": "copy-only"
+  },
+  {
+    "file": "post_evaluation/app.py",
+    "current_changed": true,
+    "copy_changed": false,
+    "merge": "current-only"
+  },
+  {
+    "file": "post_evaluation/gemini_rules.py",
+    "current_changed": false,
+    "copy_changed": true,
+    "merge": "copy-only"
+  },
+  {
+    "file": "post_evaluation/llm_client.py",
+    "current_changed": false,
+    "copy_changed": true,
+    "merge": "copy-only"
+  },
+  {
+    "file": "post_evaluation/report_analysis.py",
+    "current_changed": true,
+    "copy_changed": true,
+    "merge": "auto-merged"
+  },
+  {
+    "file": "post_evaluation/report_sections.py",
+    "current_changed": true,
+    "copy_changed": false,
+    "merge": "current-only"
+  },
+  {
+    "file": "post_evaluation/report_text.py",
+    "current_changed": true,
+    "copy_changed": false,
+    "merge": "current-only"
+  },
+  {
+    "file": "tests/test_deployment.py",
+    "current_changed": false,
+    "copy_changed": true,
+    "merge": "copy-only"
+  },
+  {
+    "file": "tests/test_report_analysis.py",
+    "current_changed": true,
+    "copy_changed": true,
+    "merge": "auto-merged"
+  },
+  {
+    "file": "tests/test_rule_parser.py",
+    "current_changed": false,
+    "copy_changed": true,
+    "merge": "copy-only"
+  },
+  {
+    "file": "tests/test_semantic_rules.py",
+    "current_changed": false,
+    "copy_changed": true,
+    "merge": "copy-only"
+  },
+  {
+    "file": "deliverables/product-introduction/产品后评估系统-产品介绍.html",
+    "current_changed": true,
+    "copy_changed": false,
+    "merge": "current-only",
+    "note": "Changed during review after temporary merge snapshot; preserve current version"
+  }
+]
