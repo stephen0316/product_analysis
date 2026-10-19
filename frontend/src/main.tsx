@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
-import { ArrowDownToLine, ArrowLeft, ArrowRight, Check, ChevronRight, CircleAlert, Copy, FileSpreadsheet, FileText, FolderOpen, GitCompare, LayoutDashboard, Menu, Plus, RefreshCw, Rocket, Save, ShieldCheck, Sparkles, SlidersHorizontal, Trash2, UploadCloud, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Check, ChevronRight, CircleAlert, Copy, FileSpreadsheet, FileText, FolderOpen, GitCompare, LayoutDashboard, Menu, Plus, RefreshCw, Rocket, Save, ShieldCheck, Sparkles, SlidersHorizontal, Trash2, UploadCloud, X } from 'lucide-react'
 import { SystemSelect } from './SystemSelect'
 import { modelDraftSignature } from './modelDraft'
 import { cleanEvaluationText } from './reportText'
@@ -306,7 +306,7 @@ function App(){
       <button className="btn btn-dark" onClick={generateReport} aria-disabled={analysisBusy}>{busy?'生成中…':'生成报告'}</button>
       {run.report&&reportNotesChanged&&<p role="status">审阅内容已修改，请重新生成报告。</p>}
     </section>
-    <section className="panel export-panel"><div className="panel-head"><div><h2>导出交付物</h2><p>{result?.model_summary?.ready?'已生成完整试算结果，并标注能力评测为模拟值。':'阶段性结果会明确标注未形成总分。'}</p></div><ArrowDownToLine size={20}/></div><div className="export-item"><FileSpreadsheet size={23}/><div><strong>评分总表 .xlsx</strong><small>沿用附件样式，按当前模型动态生成一维度一 sheet 及总表</small></div><a className={'btn btn-light '+(!result?'disabled':'')} href={result?`/api/runs/${run.id}/export.xlsx`:undefined}>导出</a></div>{run.report&&!reportNotesChanged&&<div className="export-item"><FileText size={23}/><div><strong>后评估报告 .docx</strong><small>测算结果、指标评价与补充说明</small></div><a className={'btn btn-light '+(!result?'disabled':'')} href={`/api/runs/${run.id}/report.docx`}>导出</a></div>}<div className="report-warning"><CircleAlert size={17}/><span>{result?.model_summary?.ready?'能力评测当前使用系统模拟值，总分与排名仅用于跑通流程，不作为正式业务结论。':'缺失指标不计零分，不会生成未经核实的总分与结论。'}</span></div></section>
+    <section className="panel export-panel"><div className="panel-head"><div><h2>导出交付物</h2><p>{result?.model_summary?.ready?'已生成完整试算结果，并标注能力评测为模拟值。':'阶段性结果会明确标注未形成总分。'}</p></div></div><div className="export-item"><FileSpreadsheet size={23}/><div><strong>评分总表 .xlsx</strong><small>沿用附件样式，按当前模型动态生成一维度一 sheet 及总表</small></div><a className={'btn btn-light '+(!result?'disabled':'')} href={result?`/api/runs/${run.id}/export.xlsx`:undefined}>导出</a></div>{run.report&&!reportNotesChanged&&<div className="export-item"><FileText size={23}/><div><strong>后评估报告 .docx</strong><small>测算结果、指标评价与补充说明</small></div><a className={'btn btn-light '+(!result?'disabled':'')} href={`/api/runs/${run.id}/report.docx`}>导出</a></div>}<div className="report-warning"><CircleAlert size={17}/><span>{result?.model_summary?.ready?'能力评测当前使用系统模拟值，总分与排名仅用于跑通流程，不作为正式业务结论。':'缺失指标不计零分，不会生成未经核实的总分与结论。'}</span></div></section>
   </div></>}
   </div></main>
   {active&&<MappingDrawer file={active} evaluationYear={run!.year} fields={active.mapping.fields} onClose={()=>setActiveFile(null)} onSave={mapping=>saveMapping(active,mapping)}/>}
