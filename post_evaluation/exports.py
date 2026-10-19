@@ -1074,11 +1074,15 @@ def make_report(run: dict, result: dict) -> bytes:
         doc.add_paragraph(f"• {field_label(field) if field else '数据复核'}：{'、'.join(products)}。"
                           + f"提示示例：{group[0]['message']}。完整提示见配套评分总表。")
     doc.add_paragraph(f"待完成指标：{'、'.join(pending) or '无'}。缺少上年排名、产品矩阵与人员调整依据，本稿不自动编造对应结论。")
-    doc.add_heading("三 下一步工作计划", 1)
     notes = run.get("notes") or {}
-    for heading, key in (("经营原因分析", "analysis"), ("产品处置建议", "recommendations"), ("负责人审阅意见", "review")):
-        doc.add_heading(heading, 2)
-        doc.add_paragraph(notes.get(key) or "待负责人填写并确认。")
+    supplements = [(heading, (notes.get(key) or "").strip()) for heading, key in (
+        ("经营原因分析", "analysis"), ("产品处置建议", "recommendations"), ("报告备注", "review"),
+    ) if (notes.get(key) or "").strip()]
+    if supplements:
+        doc.add_heading("三 补充说明", 1)
+        for heading, content in supplements:
+            doc.add_heading(heading, 2)
+            doc.add_paragraph(content)
     doc.add_page_break()
     add_product_evaluations(doc, run, result)
     doc.add_heading("附录 计算明细与来源", 1)

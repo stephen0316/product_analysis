@@ -176,3 +176,24 @@ class ReportAnalysisTests(unittest.TestCase):
             response = client.post(path + "/report", json={"analysis": "新说明", "evaluation_draft": draft})
             self.assertEqual(response.status_code, 409)
             self.assertEqual(client.get(path + "/report.docx").content, b"snapshot")
+
+    def test_optional_supplements_omit_blanks_and_preserve_legacy_review(self):
+        with patch("post_evaluation.report_sections.product_radar", return_value=None):
+            empty = Document(BytesIO(make_report({**self.report_run, "notes": {
+                "analysis": "  ", "recommendations": "", "review": "\n",
+            }}, self.result)))
+            filled = Document(BytesIO(make_report({**self.report_run, "notes": {
+                "analysis": "已核实的经营背景", "recommendations": " ", "review": "原审阅意见内容",
+            }}, self.result)))
+        empty_text = "\n".join(p.text for p in empty.paragraphs)
+        for label in ("三 补充说明", "经营原因分析", "产品处置建议", "报告备注", "待负责人填写并确认。"):
+            self.assertNotIn(label, empty_text)
+        filled_text = "\n".join(p.text for p in filled.paragraphs)
+        for label in ("三 补充说明", "经营原因分析", "已核实的经营背景", "报告备注", "原审阅意见内容"):
+            self.assertIn(label, filled_text)
+        self.assertNotIn("产品处置建议", filled_text)
+        self.assertNotIn("负责人审阅意见", filled_text)
+        evidence = report_evidence({**self.report_run, "notes": {
+            "analysis": "经营背景", "recommendations": "已有处置方向", "review": "仅报告备注",
+        }}, self.result)
+        self.assertEqual(evidence["business_context"], {"analysis": "经营背景", "recommendations": "已有处置方向"})
