@@ -136,8 +136,10 @@ def input_specs_for_dimension(dimension: dict, year: int) -> list[dict]:
     reuse that contract; AI-extracted text cannot create an unimplemented input.
     """
     from .calculation_types import raw_fields, source_metrics
+    from .input_names import bare_input_name, declared_input_names
     fields = list(dict.fromkeys(field for type_id in source_metrics(dimension) for field in raw_fields(type_id, year)))
-    return [{"key": key, "label": field_label(key), "required": True} for key in fields]
+    names = declared_input_names(dimension, year)
+    return [{"key": key, "label": f"{key.split(':')[1]}年{bare_input_name(names[key])}" if key in names else field_label(key), "required": True} for key in fields]
 
 
 def display_specs_for_dimension(dimension: dict, year: int) -> list[dict]:

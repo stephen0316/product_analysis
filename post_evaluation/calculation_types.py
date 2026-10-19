@@ -11,6 +11,7 @@ from .constants import ECONOMIC_FIELDS, FIELD_LABELS, PRODUCTS, expected_fields_
 from .model_defaults import default_model_definition
 from .natural_rules import average_formula, economic_intent, growth_formula, linear_score_formula, ranking_intent, unsupported_claim
 from .semantic_rules import compile_plan, read_plan
+from .input_names import single_input_name
 
 
 _DEFAULTS = {
@@ -121,6 +122,14 @@ def local_rule(type_id: str, summary: str) -> dict | None:
     if family(type_id) != "single" and "降序" not in canonical:
         candidate = re.sub(r"[，,；;]?按?(?:数值)?降序排名[，,；;]?", "", candidate)
     intent = ranking_intent(type_id, summary)
+    explicit_name = single_input_name(summary) if family(type_id) == "single" else None
+    if intent is None and explicit_name and not re.search(r"(?:19|20)\d{2}|\d{2}年", explicit_name) and type_id in {"quality", "market_share"}:
+        # Only the simple raw-value ranking grammar is reused. Source identity
+        # is resolved by the existing label/hint ambiguity check, not this name.
+        from .natural_rules import SUBJECTS
+        known_other = any(explicit_name in names for key, names in SUBJECTS.items() if key != type_id)
+        if not known_other:
+            intent = ranking_intent(type_id, summary.replace(explicit_name, SUBJECTS[type_id][0], 1))
     economic = economic_intent(summary, FIELD_LABELS[type_id]) if type_id in ECONOMIC_FIELDS else None
     if type_id in ECONOMIC_FIELDS and economic is None:
         return None
@@ -139,7 +148,7 @@ def local_rule(type_id: str, summary: str) -> dict | None:
         "normalized_summary": summary, "ranking_direction": direction,
         "time_window": "latest_two_years" if type_id in ECONOMIC_FIELDS else "latest_year",
         "tie_method": "competition",
-        "required_inputs": [{"name": field_label(field), "concept": field_label(field)[5:],
+        "required_inputs": [{"name": explicit_name or field_label(field), "concept": field_label(field)[5:],
                              "period": "previous_year" if field.endswith(":2024") else "current_year", "required": True}
                             for field in raw_fields(type_id, 2025)],
         "steps": [{"order": index, "operation": operation, "description": operation, "formula": ""}

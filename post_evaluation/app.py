@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 from openpyxl import load_workbook
 from pydantic import BaseModel, Field
 
@@ -22,8 +23,11 @@ from .constants import (
     input_specs_for_dimension,
 )
 from .exports import make_report, make_result_tables, make_workbook
+from .report_analysis import generate_evaluation_draft, report_evidence, validate_draft
 from .gemini_rules import GeminiNotConfigured, GeminiRuleError, parse_rule_summary, parse_weight_goal, parser_status
 from .ingest import auto_mapping, detect_metrics, inspect_workbook
+from .model_mapping import match_model_workbook
+from .ai_mapping import mapping_with_fallback
 from .model_engine import compare, simulate
 from .model_engine import validate_definition
 from .calculation_types import calculation_types, compile_rule, local_rule_binding, parsed_rule_binding, rule_readiness, source_metrics
@@ -109,10 +113,27 @@ class ChoicesInput(BaseModel):
     choices: dict[str, str]
 
 
+class ProductEvaluationInput(BaseModel):
+    product: str = Field(max_length=100)
+    evaluation: str = Field(max_length=2500)
+    recommendation: str = Field(max_length=2500)
+    evidence_ids: list[str] = Field(max_length=200)
+    evidence_summary: list[str] = Field(default_factory=list, max_length=200)
+
+
+class EvaluationDraftInput(BaseModel):
+    products: list[ProductEvaluationInput] = Field(max_length=30)
+    signature: str = Field(max_length=64)
+    provider: str = Field(default="gemini", max_length=30)
+    model: str = Field(default="", max_length=100)
+    generated_at: str = Field(default="", max_length=100)
+
+
 class NotesInput(BaseModel):
     analysis: str = ""
     recommendations: str = ""
     review: str = ""
+    evaluation_draft: EvaluationDraftInput | None = None
 
 
 def require_run(run_id: str) -> dict[str, Any]:
@@ -482,10 +503,12 @@ async def upload_files(run_id: str, files: list[UploadFile] = File(...)):
         try:
             load_workbook(BytesIO(content), read_only=True).close()
             inspection = inspect_workbook(BytesIO(content))
-            detected_metrics = detect_metrics(BytesIO(content))
-            suggested_targets = targets_for_metrics(run, detected_metrics)
+            suggested_targets, detected_metrics, mapping = match_model_workbook(BytesIO(content), (run.get("model") or {}).get("definition", {}).get("dimensions", []), data_year_for_run(run))
+            suggested_targets, detected_metrics, mapping = await run_in_threadpool(
+                mapping_with_fallback, BytesIO(content), file.filename,
+                (run.get("model") or {}).get("definition", {}).get("dimensions", []),
+                data_year_for_run(run), (suggested_targets, detected_metrics, mapping))
             target_keys = suggested_targets
-            mapping = auto_mapping(BytesIO(content), detected_metrics, data_year_for_run(run))
             # Keep the recognition decision with the file so the UI can expose
             # a business-level suggestion without recomputing it client-side.
             mapping["suggested_targets"] = suggested_targets
@@ -528,7 +551,7 @@ def set_mapping(run_id: str, file_id: str, body: MappingInput):
         raise HTTPException(400, "字段映射须包含该数据类别的全部字段")
     if body.sheet and body.sheet not in {sheet["name"] for sheet in file["inspection"]}:
         raise HTTPException(400, "工作表不存在")
-    store.update_mapping(run_id, file_id, body.model_dump())
+    store.update_mapping(run_id, file_id, {**body.model_dump(), "mapping_method": "manual", "mapping_note": "已手动确认计算依据"})
     return require_run(run_id)
 
 
@@ -541,7 +564,7 @@ def set_file_targets(run_id: str, file_id: str, body: FileTargetsInput):
     target_keys = validate_file_targets(run, body.targets, allow_empty=True)
     record = next(item for item in store.file_records(run_id) if item["id"] == file_id)
     metric_keys = metric_keys_for_targets(run, target_keys)
-    new_mapping = auto_mapping(record["path"], metric_keys, data_year_for_run(run))
+    _, _, new_mapping = match_model_workbook(record["path"], (run.get("model") or {}).get("definition", {}).get("dimensions", []), data_year_for_run(run), target_keys)
     new_mapping["suggested_targets"] = target_keys
     new_mapping["detected_metrics"] = metric_keys
     new_mapping = decorate_mapping(run, target_keys, new_mapping)
@@ -562,7 +585,7 @@ def set_choices(run_id: str, body: ChoicesInput):
 @app.put("/api/runs/{run_id}/notes")
 def set_notes(run_id: str, body: NotesInput):
     require_run(run_id)
-    store.update_run_json(run_id, "notes", body.model_dump())
+    store.update_run_json(run_id, "notes", body.model_dump(exclude_none=True))
     return require_run(run_id)
 
 
@@ -643,12 +666,33 @@ def result_tables(run_id: str):
     return make_result_tables(run, run["result"])
 
 
+@app.post("/api/runs/{run_id}/report-analysis")
+def report_analysis(run_id: str, body: NotesInput):
+    run = require_run(run_id)
+    if not run["result"]:
+        raise HTTPException(409, "请先计算评分结果，再生成详细评价")
+    try:
+        return generate_evaluation_draft({**run, "notes": body.model_dump(exclude_none=True)}, run["result"])
+    except GeminiNotConfigured as exc:
+        raise HTTPException(503, str(exc)) from exc
+    except GeminiRuleError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
 @app.post("/api/runs/{run_id}/report")
 def generate_report(run_id: str, body: NotesInput):
     run = require_run(run_id)
     if not run["result"]:
         raise HTTPException(409, "请先计算评分结果，再生成报告")
-    notes = body.model_dump()
+    notes = body.model_dump(exclude_none=True)
+    if body.evaluation_draft:
+        evidence = report_evidence({**run, "notes": notes}, run["result"])
+        if body.evaluation_draft.signature != evidence["signature"]:
+            raise HTTPException(409, "评分结果或经营说明已变化，请重新生成 AI 评价草稿，或移除草稿后生成数据评价报告")
+        try:
+            validate_draft(notes["evaluation_draft"], evidence)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
     content = make_report({**run, "notes": notes}, run["result"])
     store.save_report(run, notes, content)
     return require_run(run_id)

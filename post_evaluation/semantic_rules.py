@@ -16,6 +16,7 @@ class PlanInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     field: str = Field(min_length=1, max_length=100)
     period: Literal["current_year", "previous_year"]
+    name: str | None = Field(default=None, min_length=1, max_length=100, description="摘要中明确写出的原始数据名称，保留业务用词供上传表头匹配，例如服务评分；未明确名称时填null。不得用指标标题代替原始数据名称。")
     year: int | None = Field(default=None, ge=2019, le=2100, description="业务明确限定的完整年份；相对年度为null。允许2020年评估使用2019年同比基数。")
 
 
@@ -81,6 +82,7 @@ def response_schema() -> dict:
     }
     input_schema["properties"]["period"]["description"] = "业务数据在本次规则中的角色；原值所在评估年度为current_year，同比基数为previous_year。明确写25年不改变同比仍需本年及上年两项输入。"
     input_schema["required"].append("year")
+    input_schema["required"].append("name")
     # Bounded nested arrays and numeric/string matchers inflate Gemini's
     # constrained-decoding state space. Keep generation structural; the full
     # Pydantic contract above still validates every returned value locally.
@@ -222,7 +224,7 @@ def compile_plan(value, source: str, ranking: dict | None = None) -> dict:
             "ranking_direction": plan.ranking_direction, "time_window": plan.time_window, "tie_method": plan.tie_method,
             "parameters": {"first_score": plan.first_score, "rank_decrement": plan.rank_decrement,
                            "cap_percent": plan.cap_percent, "growth_denominator_uses_absolute_value": plan.growth_denominator == "absolute_previous" if plan.strategy == "economic" else None},
-            "required_inputs": [{"name": ("上一年度" if item.period == "previous_year" else "评估年度") + field_label(item.field+":2025")[5:], "concept": item.field, "period": item.period, "required": True} for item in plan.inputs],
+            "required_inputs": [{"name": ("上一年度" if item.period == "previous_year" else "评估年度") + (item.name or field_label(item.field+":2025")[5:]), "concept": item.field, "period": item.period, "required": True} for item in plan.inputs],
             "steps": [], "assumptions": [], "warnings": [], "confidence": 1}
     return {"ranking": settings, "final_ranking": {**settings, "direction": "descending"},
             "cap": (plan.cap_percent if plan.cap_percent is not None else 100)/100,

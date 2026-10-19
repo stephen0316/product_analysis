@@ -10,6 +10,7 @@ from docx import Document
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
+from docx.oxml import OxmlElement
 from docx.shared import Inches, Pt, RGBColor
 from .store import data_root
 os.environ.setdefault("MPLCONFIGDIR", str(data_root() / "matplotlib"))
@@ -25,6 +26,7 @@ from openpyxl.utils import get_column_letter
 from .constants import ECONOMIC_FIELDS, METRICS, PRODUCTS, ROLES, field_label
 from .result_state import describe_result
 from .score_presentation import step_format, step_label
+from .report_sections import add_product_evaluations
 
 
 def _make_generated_workbook_legacy(run: dict, result: dict) -> bytes:
@@ -947,7 +949,7 @@ def make_report(run: dict, result: dict) -> bytes:
     sec.left_margin = Inches(.7)
     sec.right_margin = Inches(.7)
     styles = doc.styles
-    for name in ("Normal", "Title", "Heading 1", "Heading 2"):
+    for name in ("Normal", "Title", "Heading 1", "Heading 2", "Heading 3"):
         style = styles[name]
         style.font.name = "Arial Unicode MS"
         style.font.color.rgb = RGBColor(0, 0, 0)
@@ -957,6 +959,8 @@ def make_report(run: dict, result: dict) -> bytes:
     styles["Title"].font.bold = True
     styles["Heading 1"].font.size = Pt(14)
     styles["Heading 2"].font.size = Pt(11)
+    styles["Heading 3"].font.size = Pt(11)
+    styles["Normal"].paragraph_format.space_after = Pt(6)
     title_border = styles["Title"]._element.get_or_add_pPr().find(qn("w:pBdr"))
     if title_border is not None:
         styles["Title"]._element.pPr.remove(title_border)
@@ -967,6 +971,14 @@ def make_report(run: dict, result: dict) -> bytes:
     doc.add_heading("一 上年度评估改善情况", 1)
     doc.add_paragraph("本批次尚未录入上年度评估排名、改善措施及完成情况。该部分留待负责人补充依据并审阅，不根据本年度分数推断改善效果。")
     doc.add_heading("二 本年度产品后评估结果", 1)
+    doc.add_heading("总体评价", 2)
+    doc.add_paragraph(coverage_note)
+    ranked = sorted((row for row in summary.get("rows", []) if row.get("rank") is not None), key=lambda row: row["rank"])
+    if totals_ready and ranked:
+        doc.add_paragraph("本批次综合得分前列产品为" + "、".join(row["product"] for row in ranked[:3])
+                          + "。评分仅在本批次重点产品内比较；各产品业务表现、短板和提升建议见详细评价附录。")
+    else:
+        doc.add_paragraph("当前先报告已计算指标的表现，待数据齐备后形成综合评价。各产品已具备的数据及待补充事项见详细评价附录。")
     doc.add_heading("评估口径与数据来源", 2)
     for indicator in (definition or {}).get("dimensions", []):
         if indicator.get("enabled", True):
@@ -982,12 +994,23 @@ def make_report(run: dict, result: dict) -> bytes:
     numeric_columns = len(available) + (2 if totals_ready else 0)
     score_width = 5.9 / max(numeric_columns, 1)
     widths = [Inches(1.15)] + [Inches(score_width)] * numeric_columns
+    for column, width in zip(table.columns, widths):
+        column.width = width
+    borders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        border = OxmlElement(f"w:{edge}")
+        for key, value in (("val", "single"), ("sz", "4"), ("color", "D9D9D9")):
+            border.set(qn(f"w:{key}"), value)
+        borders.append(border)
+    table._tbl.tblPr.append(borders)
     for row in table.rows:
         for cell, width in zip(row.cells, widths):
             cell.width = width
     headers = ["产品线"] + [label for _, label in available] + (["总分", "排名"] if totals_ready else [])
     for cell, label in zip(table.rows[0].cells, headers):
         cell.text = label
+    repeat = OxmlElement("w:tblHeader")
+    table.rows[0]._tr.get_or_add_trPr().append(repeat)
     for product in PRODUCTS:
         row = table.add_row().cells
         for cell, width in zip(row, widths):
@@ -1043,17 +1066,21 @@ def make_report(run: dict, result: dict) -> bytes:
         doc.add_paragraph(f"• {issue['message']}")
     if len(errors) > 10:
         doc.add_paragraph("其余错误见评分总表的“校验与待确认”工作表。")
-    warning_groups: dict[str, list[str]] = {}
+    warning_groups = {}
     for issue in warnings:
-        warning_groups.setdefault(issue.get("field", "其他"), []).append(issue.get("product", ""))
-    for field, products in warning_groups.items():
-        doc.add_paragraph(f"• {field_label(field)}负基数：{'、'.join(products)}。请核对增幅的经营含义，实际分母与公式见对应指标的评分明细。")
+        warning_groups.setdefault((issue.get("code"), issue.get("field")), []).append(issue)
+    for (_, field), group in warning_groups.items():
+        products = list(dict.fromkeys(issue.get("product") for issue in group if issue.get("product")))
+        doc.add_paragraph(f"• {field_label(field) if field else '数据复核'}：{'、'.join(products)}。"
+                          + f"提示示例：{group[0]['message']}。完整提示见配套评分总表。")
     doc.add_paragraph(f"待完成指标：{'、'.join(pending) or '无'}。缺少上年排名、产品矩阵与人员调整依据，本稿不自动编造对应结论。")
     doc.add_heading("三 下一步工作计划", 1)
     notes = run.get("notes") or {}
     for heading, key in (("经营原因分析", "analysis"), ("产品处置建议", "recommendations"), ("负责人审阅意见", "review")):
         doc.add_heading(heading, 2)
         doc.add_paragraph(notes.get(key) or "待负责人填写并确认。")
+    doc.add_page_break()
+    add_product_evaluations(doc, run, result)
     doc.add_heading("附录 计算明细与来源", 1)
     doc.add_paragraph("每条产品线的原值、增幅、两级名次、得分和来源单元格见配套评分总表的“计算明细”及“数据来源”工作表。")
     footer = sec.footer.paragraphs[0]

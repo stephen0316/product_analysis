@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 import re
 from typing import Any
+import unicodedata
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
@@ -62,6 +63,49 @@ def display_value(value: Any) -> str:
     return str(value)[:160]
 
 
+def _header_years(label: str) -> set[int]:
+    return {
+        int(full) if full else 2000 + int(short)
+        for full, short in re.findall(r"(?<!\d)((?:19|20)\d{2})(?!\d)|(?<!\d)(\d{2})年", label)
+    }
+
+
+def _quality_mappings(ws, year: int | None = None) -> list[dict[str, Any]]:
+    """Recognize the raw satisfaction header, not a sheet title or score column."""
+    candidates = []
+    context_years: set[int] = set()
+    for row in ws.iter_rows(min_row=1, max_row=min(ws.max_row, 12)):
+        labels = [re.sub(r"\s+", "", unicodedata.normalize("NFKC", str(cell.value or ""))) for cell in row]
+        products = [cell.column_letter for cell, label in zip(row, labels)
+                    if label in {"产品线", "产品名称", "公司产品", "产品"}]
+        columns = []
+        for cell, label in zip(row, labels):
+            subject = re.sub(r"(?:19|20)\d{2}年?|(?<!\d)\d{2}年", "", label)
+            subject = subject.strip("()[]【】_-/")
+            if subject == "产品推广满意度":
+                columns.append((cell.column_letter, _header_years(label)))
+        if len(products) == 1 and columns:
+            # Explicit column years take precedence over a yearless column.
+            dated = [column for column, periods in columns if periods == {year}]
+            undated = [column for column, periods in columns if not periods
+                       and (not context_years or context_years == {year})]
+            matching = dated or undated
+            candidates.append({
+                "sheet": ws.title, "header_row": row[0].row, "product_col": products[0],
+                "fields": {f"quality:{year}": matching[0] if len(matching) == 1 else None},
+            })
+        # Title/sheet years constrain yearless headers; data rows do not.
+        if not products:
+            context_years.update(period for label in labels for period in _header_years(label))
+    sheet_years = _header_years(unicodedata.normalize("NFKC", ws.title))
+    if sheet_years:
+        for candidate in candidates:
+            # A dated source sheet must not be relabelled as another year.
+            if year is not None and year not in sheet_years:
+                candidate["fields"][f"quality:{year}"] = None
+    return candidates
+
+
 def auto_mapping(path: str | Path, metric_keys: list[str], year: int) -> dict[str, Any]:
     """Suggest a mapping for the dimensions the user assigned to this file.
 
@@ -71,6 +115,16 @@ def auto_mapping(path: str | Path, metric_keys: list[str], year: int) -> dict[st
     role = adapter_for_metrics(metric_keys)
     wanted_fields = set(mapping_fields_for_metrics(metric_keys, year))
     wb = load_workbook(path, read_only=True, data_only=False)
+    if set(metric_keys) == {"quality"}:
+        try:
+            candidates = [mapping for ws in wb for mapping in _quality_mappings(ws, year)]
+            ready = [mapping for mapping in candidates if mapping["fields"][f"quality:{year}"]]
+            selected = ready or candidates
+            if len(selected) == 1:
+                return selected[0]
+            return {"sheet": None, "header_row": 1, "product_col": "A", "fields": {f"quality:{year}": None}}
+        finally:
+            wb.close()
     candidate = None
     for ws in wb:
         first = " ".join(str(ws.cell(r, c).value or "") for r in range(1, min(4, ws.max_row) + 1) for c in range(1, min(ws.max_column, 14) + 1))
@@ -158,6 +212,8 @@ def detect_metrics(path: str | Path) -> list[str]:
     detected: list[str] = []
     try:
         for ws in wb:
+            if _quality_mappings(ws):
+                detected.append("quality")
             first = " ".join(
                 str(ws.cell(r, c).value or "")
                 for r in range(1, min(4, ws.max_row) + 1)

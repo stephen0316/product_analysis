@@ -217,7 +217,7 @@ class EndToEndTests(unittest.TestCase):
                 document = Document(BytesIO(report_response.content))
                 text = "\n".join(p.text for p in document.paragraphs)
                 self.assertIn("不生成正式总分", text)
-                self.assertEqual(len(document.inline_shapes), 1)
+                self.assertEqual(len(document.inline_shapes), 1 + len(PRODUCTS))
             finally:
                 if old is None:
                     os.environ.pop("PRODUCT_EVAL_DATA_DIR", None)

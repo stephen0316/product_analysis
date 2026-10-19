@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
 from post_evaluation import store
-from post_evaluation.app import app
+from post_evaluation.app import app, targets_for_metrics
+from post_evaluation.constants import PRODUCTS
 
 
 def workbook_bytes(value=10):
@@ -97,6 +98,38 @@ class BatchUploadTests(unittest.TestCase):
         result = self.upload(("同名.xlsx", self.valid), ("同名.xlsx", workbook_bytes(20))).json()
         self.assertEqual([i["status"] for i in result["upload_results"]], ["uploaded", "uploaded"])
         self.assertNotEqual(result["files"][0]["sha256"], result["files"][1]["sha256"])
+
+    def test_quality_upload_and_existing_file_reassignment_use_raw_satisfaction(self):
+        book = Workbook()
+        book.active.append(["重点产品-品质服务"])
+        book.active.append(["序号", "产品线", "产品推广满意度"])
+        for index, product in enumerate(PRODUCTS):
+            book.active.append([index + 1, product, 96.7 - index])
+        buffer = BytesIO()
+        book.save(buffer)
+        book.close()
+        response = self.upload(("任意文件名.xlsx", buffer.getvalue()))
+        self.assertEqual(response.status_code, 200, response.text)
+        uploaded = response.json()["files"][0]
+        self.assertEqual(uploaded["targets"], ["quality"])
+        self.assertEqual(uploaded["mapping"]["fields"], {"quality:2025": "C"})
+        renamed = deepcopy(store.get_run(self.run["id"]))
+        quality = next(item for item in renamed["model"]["definition"]["dimensions"] if item["key"] == "quality")
+        quality.update(key="service_rating", label="推广服务评价", calculation_type="quality")
+        self.assertEqual(targets_for_metrics(renamed, ["quality"]), ["service_rating"])
+        # Reproduce a file uploaded before this adapter existed, then recover
+        # using the same purpose-adjustment endpoint as the user interface.
+        store.update_file_targets(self.run["id"], uploaded["id"], [], {"sheet": None, "fields": {}})
+        restored = self.client.put(self.url + f"/{uploaded['id']}/targets", json={"targets": ["quality"]})
+        self.assertEqual(restored.status_code, 200, restored.text)
+        self.assertEqual(restored.json()["files"][0]["mapping"]["fields"], {"quality:2025": "C"})
+        self.assertEqual(self.client.post(f"/api/runs/{self.run['id']}/calculate").status_code, 409)
+        validated = self.client.post(f"/api/runs/{self.run['id']}/validate")
+        self.assertEqual(validated.json()["validation"]["status"], "passed", validated.text)
+        calculated = self.client.post(f"/api/runs/{self.run['id']}/calculate")
+        self.assertEqual(calculated.status_code, 200, calculated.text)
+        traces = [trace for trace in calculated.json()["traces"] if trace["metric"] == "quality"]
+        self.assertEqual(len(traces), len(PRODUCTS))
 
     def test_failed_database_save_removes_only_uncommitted_file(self):
         self.upload(("保留.xlsx", self.valid))
