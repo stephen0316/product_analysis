@@ -233,6 +233,8 @@ body { font-size: 15px; line-height: 1.5; }
 .report-evaluation-list .note-label { margin-top: 16px; }
 .model-layout { grid-template-columns: 340px minmax(0, 1fr); gap: 32px; }
 .model-row { padding-inline: 18px; }
+.model-list .icon-btn { border: 0; background: transparent; }
+.model-list .icon-btn:hover:not(:disabled) { background: transparent; color: var(--accent); }
 .model-meta-grid { grid-template-columns: 2fr 1fr 1fr 1fr; }
 .dimension-fields { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 90px; }
 .simulation-controls { grid-template-columns: repeat(2, minmax(180px, 1fr)) auto; }
