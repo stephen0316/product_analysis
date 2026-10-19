@@ -219,7 +219,7 @@ body { font-size: 15px; line-height: 1.5; }
 .create-panel { padding: 16px 0 0; }
 .batch-form-grid { margin: 32px 0 8px; grid-template-columns: 135px minmax(260px, 1fr) minmax(300px, 1fr); }
 .report-evaluations { margin: 24px 0; padding-top: 20px; border-top: 1px solid var(--line); }
-.report-evaluations h3 { margin: 4px 0 8px; }
+.report-evaluations h3 { margin: 12px 0 8px; }
 .report-review-panel .report-evaluations { margin-top: 0; padding-top: 0; border-top: 0; }
 .report-supplement { margin: 24px 0; padding: 16px 0; border-top: 1px solid var(--line); }
 .report-supplement > summary { cursor: pointer; color: var(--muted); font-size: 14px; font-weight: 600; }
