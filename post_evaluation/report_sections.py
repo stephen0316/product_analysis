@@ -2,20 +2,13 @@
 from io import BytesIO
 import math
 from pathlib import Path
-import re
 
 from docx.shared import Inches
 import matplotlib.pyplot as plt
 from matplotlib import font_manager
 
 from .constants import PRODUCTS
-
-
-def narrative_text(text: str) -> str:
-    """Hide internal AI evidence references in the exported prose only."""
-    cluster = r"P\d+D\d+C\d+(?:\s*[|,，;；、]\s*P\d+D\d+C\d+)*"
-    text = re.sub(rf"\[\s*{cluster}\s*\]|【\s*{cluster}\s*】|\(\s*{cluster}\s*\)|（\s*{cluster}\s*）|{cluster}", "", text)
-    return re.sub(r"[ \t]+([，。；：、！？])", r"\1", text).strip()
+from .report_text import narrative_text
 
 
 def real_scores(result: dict, product: str) -> list[dict]:

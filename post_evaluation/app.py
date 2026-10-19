@@ -690,7 +690,7 @@ def generate_report(run_id: str, body: NotesInput):
         if body.evaluation_draft.signature != evidence["signature"]:
             raise HTTPException(409, "评分结果或经营说明已变化，请重新生成 AI 评价草稿，或移除草稿后生成数据评价报告")
         try:
-            validate_draft(notes["evaluation_draft"], evidence)
+            notes["evaluation_draft"] = validate_draft(notes["evaluation_draft"], evidence)
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
     content = make_report({**run, "notes": notes}, run["result"])

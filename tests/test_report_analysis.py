@@ -52,6 +52,22 @@ class ReportAnalysisTests(unittest.TestCase):
         broken = deepcopy(draft)
         broken["products"][0]["evidence_ids"] = broken["products"][1]["evidence_ids"]
         with self.assertRaises(ValueError): validate_draft(broken, evidence)
+
+    def test_prose_cleanup_preserves_numbers_metadata_and_original_draft(self):
+        evidence = report_evidence(self.report_run, self.result)
+        draft = self.draft(evidence)
+        draft["products"][0]["evaluation"] = "平均分为7.0，排名第七P1D3C11|P1D3C12。自研得分10.0【P1D4C7】。"
+        draft["products"][0]["recommendation"] = "建议核实收入下滑原因（P1D2C3|P1D2C4），跟踪2025年收入。"
+        original = deepcopy(draft)
+        cleaned = validate_draft(draft, evidence)
+        self.assertEqual(cleaned["products"][0]["evaluation"], "平均分为7.0，排名第七。自研得分10.0。")
+        self.assertEqual(cleaned["products"][0]["recommendation"], "建议核实收入下滑原因，跟踪2025年收入。")
+        self.assertEqual(cleaned["products"][0]["evidence_ids"], original["products"][0]["evidence_ids"])
+        self.assertEqual(draft, original)
+        broken = deepcopy(draft)
+        broken["products"][0]["evaluation"] = "P1D3C11|P1D3C12"
+        with self.assertRaisesRegex(ValueError, "缺少正文"):
+            validate_draft(broken, evidence)
         with self.assertRaises(ValueError): validate_draft({"products": draft["products"][:-1]}, evidence)
         broken = deepcopy(draft)
         broken["products"][0]["product"] = broken["products"][1]["product"]
@@ -138,6 +154,7 @@ class ReportAnalysisTests(unittest.TestCase):
             path = f"/api/runs/{run['id']}"
             evidence = report_evidence(store.get_run(run["id"]), self.result)
             draft = {**self.draft(evidence), "signature": evidence["signature"]}
+            draft["products"][0]["evaluation"] = "已提供数据反映了当前指标之间的差异P1D1C2。"
             with patch("post_evaluation.app.generate_evaluation_draft", return_value=draft):
                 self.assertEqual(client.post(path + "/report-analysis", json={}).status_code, 200)
             self.assertIsNone(store.get_run(run["id"])["report"])
@@ -145,6 +162,9 @@ class ReportAnalysisTests(unittest.TestCase):
             with patch("post_evaluation.app.make_report", return_value=b"snapshot"):
                 response = client.post(path + "/report", json={"evaluation_draft": draft})
                 self.assertEqual(response.status_code, 200, response.text)
+            saved_draft = store.get_run(run["id"])["notes"]["evaluation_draft"]
+            self.assertEqual(saved_draft["products"][0]["evaluation"], "已提供数据反映了当前指标之间的差异。")
+            self.assertEqual(saved_draft["products"][0]["evidence_ids"], draft["products"][0]["evidence_ids"])
             response = client.post(path + "/report", json={"analysis": "新说明", "evaluation_draft": draft})
             self.assertEqual(response.status_code, 409)
             self.assertEqual(client.get(path + "/report.docx").content, b"snapshot")
