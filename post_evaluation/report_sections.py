@@ -19,6 +19,7 @@ def real_scores(result: dict, product: str) -> list[dict]:
 
 def add_dimension_analysis(doc, run: dict, result: dict) -> None:
     definition = (run.get("model") or {}).get("definition") or {}
+    sections = {row["key"]: row for row in ((run.get("notes") or {}).get("evaluation_draft") or {}).get("dimensions", [])}
     for category in definition.get("categories", []):
         indicators = [item for item in result["indicators"]
                       if any(d["key"] == item["key"] and d.get("category_key") == category["key"]
@@ -26,6 +27,10 @@ def add_dimension_analysis(doc, run: dict, result: dict) -> None:
         if not indicators:
             continue
         doc.add_heading(category["label"], 2)
+        section = sections.get(category["key"])
+        if section and section.get("observations"):
+            add_insights(doc, section)
+            continue
         for indicator in indicators:
             if indicator["simulated"]:
                 doc.add_paragraph(f"{indicator['label']}采用模拟数据，仅展示试算过程，不评价产品真实表现。")
@@ -44,13 +49,21 @@ def add_dimension_analysis(doc, run: dict, result: dict) -> None:
                               + "评分反映本批次相对表现，具体原值、增幅和名次见同维度明细表。")
 
 
+def add_insights(doc, section):
+    for observation in section.get("observations", []):
+        paragraph = doc.add_paragraph()
+        paragraph.add_run(narrative_text(observation["title"]) + "。 ").bold = True
+        paragraph.add_run(narrative_text(observation["text"]))
+    if section.get("recommendation"):
+        doc.add_paragraph("改善方向：" + narrative_text(section["recommendation"]))
+
+
 def product_radar(scores: list[dict]) -> BytesIO | None:
     if len(scores) < 3:
         return None
     font_file = Path("/System/Library/Fonts/Supplemental/Arial Unicode.ttf")
-    if not font_file.exists():
-        return None
-    font = font_manager.FontProperties(fname=str(font_file), size=8)
+    # Radar labels are numeric; no platform-specific Chinese font is required.
+    font = font_manager.FontProperties(fname=str(font_file), size=8) if font_file.exists() else font_manager.FontProperties(size=8)
     angles = [2 * math.pi * i / len(scores) for i in range(len(scores))]
     values = [row["ratio"] for row in scores]
     fig, ax = plt.subplots(figsize=(4.9, 2.8), subplot_kw={"projection": "polar"})
@@ -72,17 +85,20 @@ def product_radar(scores: list[dict]) -> BytesIO | None:
     return buffer
 
 
-def add_product_evaluations(doc, run: dict, result: dict) -> None:
+def add_product_evaluations(doc, run: dict, result: dict, main_section=False) -> None:
     draft = (run.get("notes") or {}).get("evaluation_draft") or {}
     evaluations = {row["product"]: row for row in draft.get("products", [])}
     summaries = {row["product"]: row for row in result.get("model_summary", {}).get("rows", [])}
     products = sorted(PRODUCTS, key=lambda product: (summaries.get(product, {}).get("rank") or 999, PRODUCTS.index(product)))
-    doc.add_heading("附录 重点产品详细评价和提升建议", 1)
-    doc.add_paragraph("本附录逐款汇总评分表现、雷达图、详细评价与提升建议。"
-                      + ("评价文字由 AI 辅助起草，可由用户编辑，需由负责人审阅确认。" if evaluations else "评价依据已计算的真实数据；经营原因及处置方向由负责人补充确认。"))
-    add_dimension_analysis(doc, run, result)
-    section = doc.add_heading("分产品总体评价和提升建议", 2)
-    section.paragraph_format.page_break_before = True
+    if main_section:
+        doc.add_heading("三 分产品评价和提升建议", 1)
+    else:
+        doc.add_heading("附录 重点产品详细评价和提升建议", 1)
+        doc.add_paragraph("本附录逐款汇总评分表现、雷达图、详细评价与提升建议。"
+                          + ("评价文字由 AI 辅助起草，需由负责人审阅确认。" if evaluations else "评价依据已计算的真实数据；经营原因及处置方向由负责人补充确认。"))
+        add_dimension_analysis(doc, run, result)
+        section = doc.add_heading("分产品总体评价和提升建议", 2)
+        section.paragraph_format.page_break_before = True
     for product_index, product in enumerate(products):
         summary = summaries.get(product, {})
         suffix = f" 总分{summary['total']:.1f} 排名{summary['rank']}" if result.get("model_summary", {}).get("ready") and summary.get("total") is not None and summary.get("rank") is not None else ""

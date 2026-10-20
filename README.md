@@ -33,27 +33,28 @@ npm run dev
 
 公司服务器副本的运行配置已保留为 `docker-compose.company.yml`，使用方式见 [公司服务器配置](docs/deployment-company.md)。根目录通用 Compose 继续配套原有发布脚本，两种方式单独使用。
 
-## AI 规则解析与公司模型网关
+## AI 模型：本地 Gemini，云端沿用 GLM
 
-规则摘要在失焦后检查：明确规则可在本地识别，其他自然语言交给已配置模型理解为结构化计算方案，审阅后保存到模型草稿。规则解析、文件表头映射和报告评价共用后端模型配置。公司网关使用 OpenAI 兼容协议：
+规则识别、文件映射、调优目标解析和报告评价共用模型客户端。评分与排名由本地引擎执行，模型输出需通过本地业务校验。
 
-```bash
-read -s LLM_API_KEY
-export LLM_API_KEY
-export LLM_BASE_URL=https://onerouter.cmaiot.cn/v1
-export LLM_MODEL=qwen3.7-max
-python3 run_local.py
-```
-
-可用 `LLM_REPORT_MODEL` 单独指定报告模型，留空时使用 `LLM_MODEL`。公司网关仅通过提示词约束 JSON 输出，返回内容仍须通过本地业务校验。配置非空 `LLM_API_KEY` 时优先使用公司网关；该网关不会读取 Gemini 密钥或模型名称。仅配置 Google Gemini 时仍沿用 Google 原生协议：
+本地 `python3 run_local.py` 未指定 `LLM_PROVIDER` 时默认使用 Gemini。显式设置如下，避免加载云端环境后选错服务：
 
 ```bash
+export LLM_PROVIDER=gemini
 read -s GEMINI_API_KEY
 export GEMINI_API_KEY
 python3 run_local.py
 ```
 
-可选设置 `GEMINI_MODEL`，默认使用 `gemini-2.5-flash`。新识别协议为 `semantic-plan-v1`。AI 提取数据需求、年度、排序、平均方式、增幅分母和赋分参数，后端按方案校验并由本地引擎计算，不执行 AI 生成的公式或代码。无法确认时显示具体问题；已通过的相同内容可在本次服务进程内复用。保存草稿或发布前，识别结果不会持久化。规则识别只发送本次指标名称、规则摘要、来源提示及固定能力目录；报告页由用户主动触发 AI 评价时，会发送当前真实指标数值、排名及经营说明摘要，不发送原始上传文件。可用 `GEMINI_REPORT_MODEL` 单独配置报告模型。
+`GEMINI_MODEL` 默认 `gemini-2.5-flash`；报告可用 `GEMINI_REPORT_MODEL` 单独配置。本地不会加载服务器 `.env`。
+
+云端保留服务器现有 GLM 网关、密钥、`LLM_MODEL` 和可选 `LLM_REPORT_MODEL`。`LLM_PROVIDER=openai` 表示使用 OpenAI 兼容协议，并不表示调用 OpenAI 的模型。两份 Compose 默认走此协议，并要求明确填写 `LLM_MODEL`，避免缺失配置时使用其他默认模型。GLM 完整型号以服务器原配置为准，本仓库不猜测替换。
+
+不要覆盖服务器原有 `.env`；`.env.example` 只供新部署参考，模型名称需由技术人员填写为已有 GLM 标识。所有密钥只保存在对应环境，不提交 Git、不打入镜像。
+
+显式 provider 选择 `gemini` 或 `openai`，不会跨服务借用密钥；未指定 provider 的旧调用保持按密钥选择的兼容行为。
+
+规则识别使用 `semantic-plan-v1`，提取数据需求、年度、排序、平均方式、增幅分母和赋分参数，后端校验并计算，不执行 AI 生成的公式或代码。规则识别只发送指标名称、规则摘要、来源提示及能力目录；主动生成 AI 评价时会发送真实指标、排名和经营说明摘要，不发送原始上传文件。评价与建议需人工审阅。
 
 年度范围由原始输入依赖推导，同比同时需要本年和上年数据；AI不再独立生成可能与输入冲突的年度范围。“当年／上年”随批次年度变化，“25年／2025年”保留为明确年份约束；规则限定年份与批次不一致时阻止计算并提示，不能静默替换为另一年。年度语义新增案例已完成离线验收，真实联网联调状态见 [年度规则验收说明](docs/semantic-year-live-check.md)。
 

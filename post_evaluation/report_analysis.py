@@ -147,7 +147,7 @@ def _generate_product(product: dict, evidence: dict, model: str, key: str) -> di
     raise GeminiRuleError(f"{product['product']}的 AI {last_error}，已自动重试；请重新生成，已有内容未更改")
 
 
-def generate_evaluation_draft(run: dict, result: dict) -> dict:
+def generate_evaluation_draft(run: dict, result: dict, progress=None) -> dict:
     if not llm_client.configured():
         raise GeminiNotConfigured("AI 评价尚未配置；可先生成数据评价报告，或配置 LLM_API_KEY 或 GEMINI_API_KEY 后重试")
     evidence = report_evidence(run, result)
@@ -157,7 +157,11 @@ def generate_evaluation_draft(run: dict, result: dict) -> dict:
     pool = ThreadPoolExecutor(max_workers=3)
     futures = [pool.submit(_generate_product, product, evidence, model, llm_client.api_key()) for product in evidence["products"]]
     try:
-        rows = [future.result() for future in as_completed(futures)]
+        rows = []
+        for future in as_completed(futures):
+            rows.append(future.result())
+            if progress:
+                progress("products", len(rows), len(futures))
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
     draft = validate_draft({"products": rows}, evidence)

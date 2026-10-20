@@ -33,6 +33,11 @@ def api_key() -> str:
 
 
 def provider() -> str:
+    selected = _pick("LLM_PROVIDER").lower()
+    if selected:
+        if selected not in {"gemini", "openai"}:
+            raise ValueError("LLM_PROVIDER 须为 gemini 或 openai")
+        return selected
     # A gateway URL/model alone must not route an existing Google key elsewhere.
     return "openai" if _pick("LLM_API_KEY") else "gemini"
 

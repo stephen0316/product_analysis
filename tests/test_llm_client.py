@@ -2,6 +2,8 @@
 from io import BytesIO
 import json
 import os
+from pathlib import Path
+import runpy
 import unittest
 from unittest.mock import patch
 
@@ -72,6 +74,32 @@ class LLMClientTests(unittest.TestCase):
                 patch.object(llm_client, "urlopen", return_value=self.response(self.completion())) as send:
             llm_client.chat_json("system", "data", model_name="report")
             self.assertEqual(json.loads(send.call_args.args[0].data)["model"], "report")
+
+    def test_local_launcher_uses_gemini_with_cloud_credentials_present(self):
+        with patch.dict(os.environ, GEMINI_API_KEY="local-key", LLM_API_KEY="cloud-key",
+                        LLM_MODEL="existing-glm-model"), patch('subprocess.run'), patch('uvicorn.run'):
+            runpy.run_path(str(Path(__file__).resolve().parents[1] / 'run_local.py'), run_name='__main__')
+            self.assertEqual(llm_client.provider(), 'gemini')
+            self.assertEqual(llm_client.api_key(), 'local-key')
+            self.assertEqual(llm_client.model(), 'gemini-2.5-flash')
+
+    def test_cloud_uses_existing_glm_model_without_provider_specific_parameters(self):
+        with patch.dict(os.environ, LLM_PROVIDER="openai", LLM_API_KEY="cloud-key",
+                        LLM_BASE_URL="https://gateway.example/v1", LLM_MODEL="existing-glm-model",
+                        GEMINI_API_KEY="local-key"), \
+                patch.object(llm_client, "urlopen", return_value=self.response(self.completion())) as send:
+            llm_client.chat_json("system", "data", {"type": "object"})
+        payload = json.loads(send.call_args.args[0].data)
+        self.assertEqual(payload['model'], 'existing-glm-model')
+        self.assertEqual(send.call_args.args[0].get_header('Authorization'), 'Bearer cloud-key')
+        self.assertNotIn('thinking', payload)
+        self.assertNotIn('response_format', payload)
+
+    def test_explicit_provider_does_not_borrow_other_credentials(self):
+        for settings in [dict(LLM_PROVIDER='gemini', LLM_API_KEY='cloud-key'),
+                         dict(LLM_PROVIDER='openai', GEMINI_API_KEY='local-key')]:
+            with patch.dict(os.environ, settings):
+                self.assertFalse(llm_client.configured())
 
     def test_unconfigured_does_not_send(self):
         with patch.object(llm_client, "urlopen") as send:

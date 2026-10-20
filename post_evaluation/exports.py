@@ -26,7 +26,7 @@ from openpyxl.utils import get_column_letter
 from .constants import ECONOMIC_FIELDS, METRICS, PRODUCTS, ROLES, field_label
 from .result_state import describe_result
 from .score_presentation import step_format, step_label
-from .report_sections import add_product_evaluations
+from .report_sections import add_product_evaluations, add_dimension_analysis, add_insights
 
 
 def _make_generated_workbook_legacy(run: dict, result: dict) -> bytes:
@@ -968,17 +968,29 @@ def make_report(run: dict, result: dict) -> bytes:
     doc.add_paragraph(("分项测算稿" if result["result_status"] == "partial" else "试算稿（含模拟数据）" if result["result_status"] == "trial" else "完整测算稿") + " · 待负责人审阅")
     coverage_note = result["status_note"]
     doc.add_paragraph(f"评估范围：13 条重点产品线。规则版本 {run.get('rule_version', 'v1-2025')}。当前已计算 {len(available)}/{result['indicator_count']} 项指标，覆盖 {result['covered_points']:g}/{result['weight_total']:g} 分。{coverage_note}")
-    doc.add_heading("一 上年度评估改善情况", 1)
-    doc.add_paragraph("本批次尚未录入上年度评估排名、改善措施及完成情况。该部分留待负责人补充依据并审阅，不根据本年度分数推断改善效果。")
-    doc.add_heading("二 本年度产品后评估结果", 1)
-    doc.add_heading("总体评价", 2)
-    doc.add_paragraph(coverage_note)
-    ranked = sorted((row for row in summary.get("rows", []) if row.get("rank") is not None), key=lambda row: row["rank"])
-    if totals_ready and ranked:
-        doc.add_paragraph("本批次综合得分前列产品为" + "、".join(row["product"] for row in ranked[:3])
-                          + "。评分仅在本批次重点产品内比较；各产品业务表现、短板和提升建议见详细评价附录。")
+    draft = (run.get("notes") or {}).get("evaluation_draft") or {}
+    composed = draft.get("version") == 2 and bool(draft.get("overview"))
+    if composed:
+        doc.add_heading("一 总体结论", 1)
+        add_insights(doc, draft["overview"])
+        doc.add_heading("二 分维度分析", 1)
+        add_dimension_analysis(doc, run, result)
+        doc.add_page_break()
+        add_product_evaluations(doc, run, result, main_section=True)
+        doc.add_page_break()
+        doc.add_heading("附录 评估口径与评分结果", 1)
     else:
-        doc.add_paragraph("当前先报告已计算指标的表现，待数据齐备后形成综合评价。各产品已具备的数据及待补充事项见详细评价附录。")
+        doc.add_heading("一 上年度评估改善情况", 1)
+        doc.add_paragraph("本批次尚未录入上年度评估排名、改善措施及完成情况。该部分留待负责人补充依据并审阅，不根据本年度分数推断改善效果。")
+        doc.add_heading("二 本年度产品后评估结果", 1)
+        doc.add_heading("总体评价", 2)
+        doc.add_paragraph(coverage_note)
+        ranked = sorted((row for row in summary.get("rows", []) if row.get("rank") is not None), key=lambda row: row["rank"])
+        if totals_ready and ranked:
+            doc.add_paragraph("本批次综合得分前列产品为" + "、".join(row["product"] for row in ranked[:3])
+                              + "。评分仅在本批次重点产品内比较；各产品业务表现、短板和提升建议见详细评价附录。")
+        else:
+            doc.add_paragraph("当前先报告已计算指标的表现，待数据齐备后形成综合评价。各产品已具备的数据及待补充事项见详细评价附录。")
     doc.add_heading("评估口径与数据来源", 2)
     for indicator in (definition or {}).get("dimensions", []):
         if indicator.get("enabled", True):
@@ -1079,12 +1091,13 @@ def make_report(run: dict, result: dict) -> bytes:
         ("经营原因分析", "analysis"), ("产品处置建议", "recommendations"), ("报告备注", "review"),
     ) if (notes.get(key) or "").strip()]
     if supplements:
-        doc.add_heading("三 补充说明", 1)
+        doc.add_heading("附录 补充说明" if composed else "三 补充说明", 1)
         for heading, content in supplements:
             doc.add_heading(heading, 2)
             doc.add_paragraph(content)
-    doc.add_page_break()
-    add_product_evaluations(doc, run, result)
+    if not composed:
+        doc.add_page_break()
+        add_product_evaluations(doc, run, result)
     doc.add_heading("附录 计算明细与来源", 1)
     doc.add_paragraph("每条产品线的原值、增幅、两级名次、得分和来源单元格见配套评分总表的“计算明细”及“数据来源”工作表。")
     footer = sec.footer.paragraphs[0]

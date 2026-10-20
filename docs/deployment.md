@@ -69,12 +69,13 @@ cp .env.example /opt/product-evaluation/.env
 chmod 600 /opt/product-evaluation/.env
 ```
 
-编辑 `/opt/product-evaluation/.env`：
+新部署时配置 `/opt/product-evaluation/.env`；已有部署保留原 GLM 网关、密钥和模型名称，不用示例替换实际值：
 
 ```dotenv
-LLM_API_KEY=实际公司网关密钥
+LLM_PROVIDER=openai
+LLM_API_KEY=服务器原有GLM密钥
 LLM_BASE_URL=https://onerouter.cmaiot.cn/v1
-LLM_MODEL=qwen3.7-max
+LLM_MODEL=服务器原有GLM模型标识
 PRODUCT_EVAL_PORT=8765
 ```
 

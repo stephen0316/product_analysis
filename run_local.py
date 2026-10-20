@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 import subprocess
 
 import uvicorn
@@ -14,5 +15,7 @@ def build_frontend() -> None:
 
 
 if __name__ == "__main__":
+    # Cloud credentials may coexist in the shell; local debugging stays Gemini.
+    os.environ.setdefault("LLM_PROVIDER", "gemini")
     build_frontend()
     uvicorn.run("post_evaluation.app:app", host="127.0.0.1", port=8765, reload=False)

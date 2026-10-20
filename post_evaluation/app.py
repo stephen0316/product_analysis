@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from openpyxl import load_workbook
@@ -37,6 +37,8 @@ from .result_state import describe_result
 from .weight_optimizer import optimize_weights
 from .scoring import calculate
 from . import store
+from . import report_jobs
+from .report_preview import report_html
 
 
 app = FastAPI(title="产品后评估", version="0.1.0")
@@ -679,6 +681,33 @@ def report_analysis(run_id: str, body: NotesInput):
         raise HTTPException(502, str(exc)) from exc
 
 
+@app.post("/api/runs/{run_id}/ai-report", status_code=202)
+def start_ai_report(run_id: str, body: NotesInput | None = None):
+    run = require_run(run_id)
+    if not run["result"]:
+        raise HTTPException(409, "请先计算评分结果，再生成报告")
+    notes = {key: run["notes"].get(key, "") for key in ("analysis", "recommendations", "review")}
+    if body is not None:
+        notes.update(body.model_dump(exclude={"evaluation_draft"}))
+    try:
+        return report_jobs.start(run, notes)
+    except GeminiNotConfigured as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+
+@app.get("/api/runs/{run_id}/ai-report")
+def ai_report_status(run_id: str):
+    return report_jobs.status(require_run(run_id))
+
+
+@app.get("/api/runs/{run_id}/report-preview", response_class=HTMLResponse)
+def preview_report(run_id: str):
+    run = require_run(run_id)
+    if not run["report"]:
+        raise HTTPException(409, "请先生成报告")
+    return HTMLResponse(report_html(store.report_content(run_id)), headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/runs/{run_id}/report")
 def generate_report(run_id: str, body: NotesInput):
     run = require_run(run_id)
@@ -704,7 +733,7 @@ def export_report(run_id: str):
     if not run["report"]:
         raise HTTPException(409, "请先点击生成报告")
     content = store.report_content(run_id)
-    return StreamingResponse(BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename=product-evaluation-report-{run['year']}.docx"})
+    return Response(content, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename=product-evaluation-report-{run['year']}.docx", "Cache-Control": "no-store"})
 
 
 frontend = Path(__file__).resolve().parent.parent / "frontend" / "dist"

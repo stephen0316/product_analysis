@@ -330,10 +330,20 @@ def report_fingerprint(run: dict) -> str:
     return hashlib.sha256(json.dumps(inputs, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
 
 
-def save_report(run: dict, notes: dict, content: bytes) -> None:
+def save_report(run: dict, notes: dict, content: bytes, expected_fingerprint: str | None = None) -> None:
     snapshot = {**run, "notes": notes}
     timestamp = now()
     with connect() as db:
+        if expected_fingerprint is not None:
+            db.execute("BEGIN IMMEDIATE")
+            current = db.execute("SELECT * FROM runs WHERE id=?", (run["id"],)).fetchone()
+            if not current:
+                raise ValueError("评估批次已删除，报告未保存")
+            current = dict(current)
+            for key in ("source_choices", "notes", "result", "validation"):
+                current[key] = json.loads(current[key]) if current[key] else None
+            if report_fingerprint(current) != expected_fingerprint:
+                raise ValueError("评分结果或业务说明已变化，请重新生成报告；已有报告未覆盖")
         db.execute("UPDATE runs SET notes=?,updated_at=? WHERE id=?", (json.dumps(notes, ensure_ascii=False), timestamp, run["id"]))
         db.execute("INSERT INTO review_events VALUES(?,?,?,?)", (uuid4().hex, run["id"], timestamp, json.dumps(notes, ensure_ascii=False)))
         db.execute("INSERT OR REPLACE INTO reports VALUES(?,?,?,?)", (run["id"], timestamp, report_fingerprint(snapshot), content))

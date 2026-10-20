@@ -6,8 +6,8 @@
 
 ## 首次或继续使用副本服务器
 
-1. 在部署目录准备 `.env`（可参考 `.env.example`），填写 `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL`。报告可另设 `LLM_REPORT_MODEL`。密钥不提交到 Git。
-2. 配置优先级：非空 `LLM_API_KEY` 选择公司网关；否则仅使用 `GEMINI_API_KEY` 的 Google 原生接口。两套密钥和模型名称不会交叉回退。
+1. 继续使用服务器原有 `.env` 的 GLM 网关地址、密钥、`LLM_MODEL` 和可选 `LLM_REPORT_MODEL`，不要用示例覆盖旧配置。新部署才参考 `.env.example` 并填写实际 GLM 标识。密钥不提交 Git；Compose 要求 `LLM_MODEL` 非空。
+2. 云端 Compose 默认 `LLM_PROVIDER=openai`，通过兼容协议调用原 GLM 模型；本地 `run_local.py` 默认 Gemini。显式 provider 优先于按密钥选择，不会交叉借用密钥。
 3. 服务器构建前端，再构建应用镜像、启动服务：
 
 ```bash

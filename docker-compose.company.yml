@@ -10,6 +10,8 @@ services:
     env_file:
       - .env
     environment:
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_MODEL: ${LLM_MODEL:?请保留服务器原有的 GLM 模型标识}
       PRODUCT_EVAL_DATA_DIR: /app/local_data
       TZ: Asia/Shanghai
     ports:
