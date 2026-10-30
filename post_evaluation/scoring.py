@@ -12,8 +12,8 @@ from .constants import (
     field_label,
 )
 from .ingest import extract_records
-from .calculation_types import bindings, compile_rule, raw_fields
-from .semantic_rules import read_plan, specified_year
+from .calculation_types import bindings, compile_rule, dimension_raw_fields
+from .rule_years import dimension_year
 from .model_defaults import default_model_definition
 from .model_engine import validate_definition
 from .result_state import describe_result
@@ -41,11 +41,7 @@ def calculate(year: int, files: list[dict[str, Any]], source_choices: dict[str, 
     dimensions = [item for item in model_definition["dimensions"] if item.get("enabled", True)]
     compiled = [(output, type_id, compile_rule(item, type_id, ranking))
                 for item in dimensions for output, type_id in bindings(item)]
-    for output, _, settings in compiled:
-        value = settings["rule"].get("execution_plan")
-        fixed_year = specified_year(read_plan(value)) if value else None
-        if fixed_year is not None and fixed_year != year:
-            raise ValueError(f"指标{output}的规则明确限定{fixed_year}年，当前批次数据年度为{year}年；请使用对应年度批次或调整规则")
+    input_years = {output: dimension_year(item, year) for item in dimensions for output, _ in bindings(item)}
     issues: list[dict[str, Any]] = []
     by_field: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     dimensions_by_key = {item["key"]: [type_id for _, type_id in bindings(item)] for item in dimensions}
@@ -57,9 +53,14 @@ def calculate(year: int, files: list[dict[str, Any]], source_choices: dict[str, 
         for target in file.get("targets", [])
         for metric in dimensions_by_key.get(target, [target])
     ]
-    all_fields = list(dict.fromkeys(field for type_id in selected_metric_keys for field in raw_fields(type_id, year)))
+    selected_dimensions = [item for item in dimensions if item["key"] in {target for f in files for target in f.get("targets", [])}
+                           or any(type_id in selected_metric_keys for _, type_id in bindings(item))]
+    all_fields = list(dict.fromkeys(field for item in selected_dimensions for _, type_id in bindings(item)
+                                   for field in dimension_raw_fields(item, type_id, year)))
     for f in files:
-        records, file_issues = extract_records(f["path"], f["id"], f["role"], f["mapping"])
+        active_mapping = {**f["mapping"], "fields": {k: v for k, v in f["mapping"].get("fields", {}).items()
+                          if not k.startswith("research_cost_") or k in all_fields}}
+        records, file_issues = extract_records(f["path"], f["id"], f["role"], active_mapping)
         issues.extend({**issue, "file_id": f["id"]} for issue in file_issues)
         for record in records:
             by_field[record["field"]][record["product"]].append(record)
@@ -99,27 +100,29 @@ def calculate(year: int, files: list[dict[str, Any]], source_choices: dict[str, 
         indicator_scores, indicator_traces, status = {p: {} for p in PRODUCTS}, [], {type_id: "待完成"}
         rank = settings["ranking"]
         final_rank = settings["final_ranking"]
+        input_year = input_years[output]
         if type_id in {"market_share", "quality"}:
-            _score_single(type_id, f"{type_id}:{year}", selected, indicator_scores, indicator_traces, status, rank)
+            _score_single(type_id, f"{type_id}:{input_year}", selected, indicator_scores, indicator_traces, status, rank)
         elif type_id in ECONOMIC_FIELDS:
-            _score_economic(type_id, year, selected, indicator_scores, indicator_traces, status, issues, rank,
+            _score_economic(type_id, input_year, selected, indicator_scores, indicator_traces, status, issues, rank,
                             settings["growth_denominator_absolute"], final_rank)
         elif type_id == "three_eff":
-            _score_three_eff(year, selected, indicator_scores, indicator_traces, status, rank, final_rank)
+            _score_three_eff(input_year, selected, indicator_scores, indicator_traces, status, rank, final_rank)
         elif type_id == "self_research":
-            _score_self_research(year, selected, indicator_scores, indicator_traces, status, issues, rank, final_rank, settings["cap"])
+            _score_self_research(input_year, selected, indicator_scores, indicator_traces, status, issues, rank, final_rank, settings["cap"], settings["research_cost_fields"])
         elif type_id == "ability":
-            _score_mock_ability(year, indicator_scores, indicator_traces, status, rank)
+            _score_mock_ability(input_year, indicator_scores, indicator_traces, status, rank)
             simulated_metrics.append(output)
         for product in PRODUCTS:
             if type_id in indicator_scores[product]:
                 scores[product][output] = indicator_scores[product][type_id]
         for trace in indicator_traces:
-            traces.append({**trace, "metric": output, "calculation_type": type_id,
+            traces.append({**trace, "metric": output, "calculation_type": type_id, "data_year": input_year,
                            "simulated": type_id == "ability", "ranking_direction": rank["direction"],
                            "first_score": rank.get("first_score", 10), "rank_decrement": rank.get("decrement", .5)})
     return describe_result(model_definition, {
         "year": year,
+        "indicator_data_years": input_years,
         "products": PRODUCTS,
         "scores": scores,
         "traces": traces,
@@ -225,10 +228,10 @@ def _score_three_eff(year: int, selected: dict, scores: dict, traces: list, stat
     status["three_eff"] = "已计算"
 
 
-def _score_self_research(year: int, selected: dict, scores: dict, traces: list, status: dict, issues: list, ranking: dict | None = None, final_ranking: dict | None = None, cap: float = 1.0) -> None:
+def _score_self_research(year: int, selected: dict, scores: dict, traces: list, status: dict, issues: list, ranking: dict | None = None, final_ranking: dict | None = None, cap: float = 1.0, cost_keys: list[str] | None = None) -> None:
     ratio_field = f"self_owned_ratio:{year}"
     revenue_field = f"research_revenue:{year}"
-    cost_fields = [f"{field}:{year}" for field in SELF_RESEARCH_COST_FIELDS]
+    cost_fields = [f"{field}:{year}" for field in (SELF_RESEARCH_COST_FIELDS if cost_keys is None else cost_keys)]
     if not _complete(selected, [ratio_field, revenue_field, *cost_fields]):
         return
 
@@ -279,7 +282,7 @@ def _score_self_research(year: int, selected: dict, scores: dict, traces: list, 
         steps.extend([{
             "label": "研发总成本",
             "value": costs[product],
-            "formula": "E～K 项研发成本之和",
+            "formula": "＋".join(field_label(field)[5:] for field in cost_fields),
         }, {
             "label": "研发投入产出比",
             "value": roi[product],

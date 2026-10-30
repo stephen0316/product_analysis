@@ -278,7 +278,10 @@ class SemanticRulesTests(unittest.TestCase):
         baseline = calculate_sample(default_model_definition())
         for prefix, year in variants:
             summary = prefix + "与增幅分别排名赋分，取平均后再次排名赋分；增幅按（当年值－上年值）÷ABS（上年值）计算，结果保留正负号。"
-            self.assertIsNone(local_rule("revenue", summary))
+            if year is None:
+                self.assertIsNone(local_rule("revenue", summary))
+            else:
+                self.assertIsNotNone(local_rule("revenue", summary))
             raw = example_plan(inputs=[{**item, "year": year if item["period"] == "current_year" else None} for item in input_contract("revenue")])
             raw.pop("time_window")
             normalized = normalize_interpretation({"normalized_summary": summary, "execution_plan": raw, "confidence": .99})
@@ -294,8 +297,9 @@ class SemanticRulesTests(unittest.TestCase):
                 if year is None:
                     self.assertEqual(calculate(2026, files, {}, definition)["scores"][PRODUCTS[0]]["revenue"], 10)
                 else:
-                    with self.assertRaisesRegex(ValueError, "明确限定2025年.*年度为2026年"):
-                        calculate(2026, files, {}, definition)
+                    result = calculate(2026, files, {}, definition)
+                    self.assertTrue(any(i.get("field") == "revenue:2024" and i["code"] == "missing" for i in result["issues"]))
+                    self.assertEqual(result["indicator_data_years"]["revenue"], 2025)
 
 
 if __name__ == "__main__":

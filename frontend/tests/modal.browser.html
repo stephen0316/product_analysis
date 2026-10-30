@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><title>PE-19 modal regression</title>
+<style>body{font:16px system-ui;padding:24px}li{margin:12px 0}[role=dialog]{padding:24px;border:1px solid}button,input{margin:8px}</style>
+<h1>PE-19 弹层回归测试</h1><button id="run">运行测试</button><ol id="results"></ol><div id="fixture"></div>
+<script type="module">
+import { mountModal } from '/src/modal.ts'
+const fixture=document.querySelector('#fixture'),results=document.querySelector('#results')
+const assert=(condition,message)=>{if(!condition)throw Error(message)}
+const key=(value,shiftKey=false)=>document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:value,shiftKey,bubbles:true,cancelable:true}))
+document.querySelector('#run').onclick=()=>{
+  results.replaceChildren()
+  function test(name,body){
+    const cleanups=[]
+    fixture.innerHTML='<button id="trigger">入口</button><div id="background"><input aria-label="背景输入"></div><div id="preserved" inert>原有隔离</div><div role="dialog" tabindex="-1"><button id="first">关闭</button><input id="middle"><button id="disabled" disabled>禁用</button><button id="last">取消</button></div>'
+    const dialog=fixture.querySelector('[role=dialog]'),trigger=fixture.querySelector('#trigger')
+    trigger.focus()
+    const mount=(options={})=>{const cleanup=mountModal({element:dialog,close:()=>{},canClose:()=>true,...options});cleanups.push(cleanup);return cleanup}
+    const row=document.createElement('li')
+    try{body({dialog,trigger,mount,cleanups});row.textContent='PASS · '+name}
+    catch(error){row.textContent='FAIL · '+name+' · '+error.message;row.style.color='red'}
+    finally{while(cleanups.length)cleanups.pop()();fixture.replaceChildren()}
+    results.append(row)
+  }
+  test('初始焦点与安全取消按钮',({mount,dialog})=>{mount({initial:'#last'});assert(document.activeElement.id==='last','初始焦点错误');assert(dialog.getAttribute('tabindex')==='-1','容器无后备焦点')})
+  test('Tab / Shift+Tab 循环及输入框参与',({mount})=>{mount();key('Tab',true);assert(document.activeElement.id==='last','反向未循环');key('Tab');assert(document.activeElement.id==='first','正向未循环');document.querySelector('#middle').focus();assert(document.activeElement.id==='middle','输入框不能获得焦点')})
+  test('Escape 尊重忙碌状态和下拉框已处理事件',({mount})=>{let busy=true,closed=0;mount({canClose:()=>!busy,close:()=>closed++});key('Escape');assert(closed===0,'忙碌时关闭');busy=false;const block=e=>e.preventDefault();document.activeElement.addEventListener('keydown',block,{once:true});key('Escape');assert(closed===0,'吞掉下拉框分层');key('Escape');assert(closed===1,'可关闭时未关闭')})
+  test('背景 inert、滚动锁及关闭恢复',({mount,trigger,cleanups})=>{const overflow=document.body.style.overflow;mount();assert(document.querySelector('#background').inert,'未隔离背景');assert(document.body.style.overflow==='hidden','未锁定滚动');const event=new Event('wheel',{bubbles:true,cancelable:true});document.body.dispatchEvent(event);assert(event.defaultPrevented,'背景滚动未拦截');cleanups.pop()();assert(document.activeElement===trigger,'未恢复入口焦点');assert(document.body.style.overflow===overflow,'未恢复滚动');assert(!document.querySelector('#background').inert,'未解锁背景');assert(document.querySelector('#preserved').inert,'覆盖了原有 inert')})
+  test('嵌套层仅顶层响应并逐层恢复',({mount,dialog,cleanups})=>{let parentClose=0,childClose=0;mount({close:()=>parentClose++});const opener=document.querySelector('#middle');opener.focus();const child=document.createElement('section');child.setAttribute('role','dialog');child.tabIndex=-1;child.innerHTML='<button>内层关闭</button>';dialog.append(child);const closeChild=mountModal({element:child,close:()=>childClose++,canClose:()=>true});cleanups.push(closeChild);key('Escape');assert(childClose===1&&parentClose===0,'多层同时响应');cleanups.pop()();child.remove();assert(document.activeElement===opener,'未回到父层入口');assert(document.body.style.overflow==='hidden','内层关闭提前解锁滚动')})
+  test('无可用控件时焦点保留在容器',({mount,dialog})=>{dialog.querySelectorAll('button,input').forEach(x=>x.disabled=true);mount();key('Tab');assert(document.activeElement===dialog,'无控件时逃到背景')})
+  test('重复挂载清理保留背景原状',({mount,cleanups})=>{mount();cleanups.pop()();mount();assert(document.querySelector('#background').inert,'重复挂载失效')})
+}
+</script></html>

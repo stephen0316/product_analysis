@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from .cost_scope import DEFAULT_SELF_RESEARCH_SUMMARY
 
 
 DEFAULT_MODEL_ID = "model-2025-v1"
@@ -111,7 +112,7 @@ DEFAULT_MODEL_DEFINITION = {
             "aggregation": "average_scaled",
             "metric_keys": ["self_research"],
             "calculation_type": "self_research",
-            "rule_summary": "自研收入占比与研发投入产出比赋分后取平均，再次排名。",
+            "rule_summary": DEFAULT_SELF_RESEARCH_SUMMARY,
         },
         {
             "key": "ability",

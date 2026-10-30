@@ -95,6 +95,7 @@ export function SystemSelect({ value, children, onChange, label, disabled = fals
       else openMenu()
     } else if (event.key === 'Escape' && open) {
       event.preventDefault()
+      event.stopPropagation()
       closeMenu()
     } else if (event.key === 'Tab' && open) {
       closeMenu()
@@ -166,6 +167,6 @@ export function SystemSelect({ value, children, onChange, label, disabled = fals
       aria-disabled={option.disabled || undefined}
       onMouseEnter={() => { if (!option.disabled) setActiveIndex(index) }}
       onClick={() => choose(index)}
-    ><span>{option.label}</span>{option.value === value && <Check size={16} aria-hidden="true" />}</div>)}</div>, document.body)}
+    ><span>{option.label}</span>{option.value === value && <Check size={16} aria-hidden="true" />}</div>)}</div>, triggerRef.current?.closest('[aria-modal="true"]') || document.body)}
   </>
 }

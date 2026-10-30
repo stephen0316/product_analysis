@@ -194,7 +194,7 @@ body { font-size: 15px; line-height: 1.5; }
 .panel-head h2, .product-title h2 { font-size: 19px; }
 .btn, .role-select button, .segmented button, .model-row strong, .run-row strong, .file-row strong, .metric-rows button, .export-item strong { font-size: 14px; }
 .form-grid label, .mapping-top label, .note-label, .model-meta-grid label, .dimension-fields label, .dimension-main > label, .model-toolbar label, .simulation-controls label, .field-list label { font-size: 14px; line-height: 1.45; }
-.form-grid input, .mapping-top input, .unit-input, .note-label textarea, .model-meta-grid input, .dimension-fields input, .dimension-main textarea, .model-toolbar input, .searchbox input { min-height: 44px; font-size: 15px; line-height: 1.4; }
+.form-grid input, .mapping-top input, .unit-input, .note-label textarea, .model-meta-grid input, .dimension-fields input, .dimension-main textarea, .model-toolbar input, .searchbox input { min-height: 44px; font-size: 15px; line-height: 1.6; }
 .form-grid input:focus, .mapping-top input:focus, .model-meta-grid input:focus, .dimension-fields input:focus, .dimension-main textarea:focus, .model-toolbar input:focus, .optimizer-form input:focus, .optimizer-form textarea:focus, .note-label textarea:focus, .searchbox input:focus {
   outline: 0;
   border-color: var(--accent);
@@ -697,3 +697,4 @@ body { font-size: 15px; line-height: 1.5; }
 .trace-contribution p { margin: 8px 0; font-size: 13px; line-height: 1.6; }
 .trace-contribution > strong { display: block; margin-top: 14px; font-size: 15px; line-height: 1.6; }
 .trace-contribution > small { display: block; margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.confirm-dialog, .drawer, .model-panel-content, .drawer-body { overscroll-behavior: contain; }

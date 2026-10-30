@@ -11,7 +11,9 @@ from .constants import ECONOMIC_FIELDS, FIELD_LABELS, PRODUCTS, expected_fields_
 from .model_defaults import default_model_definition
 from .natural_rules import average_formula, economic_intent, growth_formula, linear_score_formula, ranking_intent, unsupported_claim
 from .semantic_rules import compile_plan, read_plan
-from .input_names import single_input_name
+from .input_names import single_input_name, bare_input_name
+from .cost_scope import cost_scope, LEGACY_SELF_RESEARCH_SUMMARY
+from .rule_years import dimension_year, summary_year, relative_wording
 
 
 _DEFAULTS = {
@@ -49,6 +51,7 @@ def calculation_types() -> list[dict]:
     return [{
         "id": key, "label": item["label"] + ("（年度模拟）" if key == "ability" else ""),
         "algorithm": family(key), "rule_summary": item["rule_summary"],
+        **({"legacy_rule_summary": LEGACY_SELF_RESEARCH_SUMMARY} if key == "self_research" else {}),
         "inputs": [field_label(field).replace("2024年", "上一年度").replace("2025年", "评估年度") for field in raw_fields(key, 2025)],
         "parameters": ["ranking_direction", "first_score", "rank_decrement"]
         + (["growth_denominator_uses_absolute_value"] if key in ECONOMIC_FIELDS else [])
@@ -61,6 +64,14 @@ def calculation_types() -> list[dict]:
 def raw_fields(type_id: str, year: int) -> list[str]:
     # Ability remains an explicitly labelled demo until PE-10 connects its source.
     return [] if type_id == "ability" else expected_fields_for_metrics([type_id], year)
+
+
+def dimension_raw_fields(dimension: dict, type_id: str, year: int) -> list[str]:
+    year = dimension_year(dimension, year)
+    if type_id == "self_research":
+        costs, _ = cost_scope(dimension.get("rule_summary", ""))
+        return [f"{key}:{year}" for key in ["self_owned_ratio", "research_revenue", *costs]]
+    return raw_fields(type_id, year)
 
 
 def bindings(dimension: dict) -> list[tuple[str, str]]:
@@ -109,6 +120,19 @@ def local_rule(type_id: str, summary: str) -> dict | None:
     if type_id not in _DEFAULTS or not isinstance(summary, str):
         return None
     canonical = _DEFAULTS[type_id]["rule_summary"]
+    fields = raw_fields(type_id, 2025)
+    original_summary = summary
+    if type_id == "self_research":
+        costs, summary = cost_scope(summary)
+        canonical = LEGACY_SELF_RESEARCH_SUMMARY
+        fields = [f"{key}:2025" for key in ["self_owned_ratio", "research_revenue", *costs]]
+    input_year = summary_year(original_summary)
+    if input_year is not None:
+        summary = relative_wording(summary, input_year)
+        if type_id in ECONOMIC_FIELDS:
+            subject = FIELD_LABELS[type_id]
+            summary = re.sub(r"^" + re.escape(subject) + r"(?:与|和|及)(?:同比)?增幅\s*[,，]?\s*(分别|各自)",
+                             r"当年" + subject + r"与增幅\1", summary)
     direction = "ascending" if "升序" in summary else "descending"
     candidate = re.sub(r"(排名|排序)(?:并且|并|然后|再)(赋分|给分)", r"\1\2", summary).replace("升序", "降序")
     denominator_absolute = True
@@ -145,12 +169,13 @@ def local_rule(type_id: str, summary: str) -> dict | None:
     if intent:
         params.update(intent["parameters"])
     return {
-        "normalized_summary": summary, "ranking_direction": direction,
+        "normalized_summary": original_summary, "input_year": input_year, "ranking_direction": direction,
         "time_window": "latest_two_years" if type_id in ECONOMIC_FIELDS else "latest_year",
         "tie_method": "competition",
-        "required_inputs": [{"name": explicit_name or field_label(field), "concept": field_label(field)[5:],
+        "required_inputs": [{"name": (f"{input_year-(1 if field.endswith(':2024') else 0)}年{bare_input_name(explicit_name or field_label(field))}"
+                                      if input_year is not None else explicit_name or field_label(field)), "concept": field_label(field)[5:],
                              "period": "previous_year" if field.endswith(":2024") else "current_year", "required": True}
-                            for field in raw_fields(type_id, 2025)],
+                            for field in fields],
         "steps": [{"order": index, "operation": operation, "description": operation, "formula": ""}
                   for index, operation in enumerate(_PIPELINES[family(type_id)], 1)],
         "parameters": params, "assumptions": [], "warnings": [], "confidence": 1,
@@ -254,7 +279,13 @@ def compile_rule(dimension: dict, type_id: str, ranking: dict | None = None, *, 
         parser = options.get("rule_parser")
         if not isinstance(parser, dict) or parser.get("source_summary") != summary:
             raise ValueError("规则摘要已变更，请在离开输入框后重新识别")
-        return compile_plan(semantic["execution_plan"], type_id, ranking)
+        compiled = compile_plan(semantic["execution_plan"], type_id, ranking)
+        compiled["input_year"] = dimension_year(dimension, 2025) if summary_year(summary) is not None or compiled.get("input_year") is not None else None
+        if type_id == "self_research":
+            costs, _ = cost_scope(summary)
+            if set(compiled["research_cost_fields"]) != set(costs):
+                raise ValueError("摘要与识别的研发成本范围不一致，请重新识别成本清单")
+        return compiled
     if unsupported_claim(summary):
         raise ValueError("当前支持按名次赋分，尚不支持直接满分或额外加分")
     local = local_rule(type_id, summary)
@@ -401,6 +432,8 @@ def compile_rule(dimension: dict, type_id: str, ranking: dict | None = None, *, 
         raise ValueError("赋分参数超出可计算范围，请检查首名分和递减值")
     return {
         "ranking": settings, "final_ranking": {**settings, "direction": "descending"},
+        "research_cost_fields": cost_scope(summary)[0] if type_id == "self_research" else [],
+        "input_year": summary_year(summary),
         "cap": (cap if cap is not None else 100) / 100,
         "growth_denominator_absolute": absolute if absolute is not None else options.get("growth_denominator_absolute", True),
         "rule": deepcopy(rule),
@@ -411,7 +444,15 @@ def rule_readiness(dimension: dict, ranking: dict | None = None) -> dict:
     try:
         bound = bindings(dimension)
         compiled = [compile_rule(dimension, type_id, ranking) for _, type_id in bound]
+        from .constants import input_specs_for_dimension
+        specs = input_specs_for_dimension(dimension, 2025)
+        explicit_year = compiled[0].get("input_year")
+        labels = [item["label"] if explicit_year is not None else item["label"].replace("2024年", "上一年度").replace("2025年", "评估年度")
+                  for item in specs if not item["key"].startswith("research_cost_")]
+        if any(type_id == "self_research" for _, type_id in bound):
+            labels.append(f"{str(explicit_year)+'年' if explicit_year is not None else '评估年度'}研发总成本（按摘要所列范围）")
         return {"key": dimension.get("key"), "executable": True, "errors": [],
-                "calculation_type": bound[0][1], "normalized_summary": compiled[0]["rule"].get("normalized_summary", "")}
+                "calculation_type": bound[0][1], "inputs": labels, "data_year": explicit_year,
+                "normalized_summary": compiled[0]["rule"].get("normalized_summary", "")}
     except ValueError as exc:
         return {"key": dimension.get("key"), "executable": False, "errors": [str(exc)]}

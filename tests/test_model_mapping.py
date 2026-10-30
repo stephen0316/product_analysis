@@ -87,7 +87,7 @@ class ModelMappingTests(unittest.TestCase):
     def test_hint_does_not_override_explicit_known_source_or_unsupported_operations(self):
         from post_evaluation.calculation_types import local_rule_binding
         self.assertEqual(local_rule_binding('品质服务', '按市场份额降序排名赋分。', 'quality')[0], 'market_share')
-        for summary in ('按服务评分加10分降序排名赋分。', '按服务评分降序排名赋分，额外加分。', '按2025年服务评分降序排名赋分。'):
+        for summary in ('按服务评分加10分降序排名赋分。', '按服务评分降序排名赋分，额外加分。'):
             self.assertIsNone(local_rule_binding('品质服务', summary, 'quality'), summary)
 
     def test_semantic_plan_preserves_explicit_names_for_multiple_periods(self):

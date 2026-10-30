@@ -11,6 +11,7 @@ from .calculation_types import source_metrics
 from .constants import field_label, input_specs_for_dimension
 from .ingest import _header_years, auto_mapping, detect_metrics
 from .input_names import bare_input_name, declared_input_names, normalize_name
+from .rule_years import dimension_year
 
 
 def _header(value: str) -> tuple[str, set[int], str | None]:
@@ -20,7 +21,7 @@ def _header(value: str) -> tuple[str, set[int], str | None]:
     if re.match(r"\s*(?:当年|本年|评估年度|最新年度|本年度)", label):
         period = "current_year"
     label = re.sub(r"(?:19|20)\d{2}年?|(?<!\d)\d{2}年", "", label)
-    label = bare_input_name(label).strip().strip("()[]【】_-/ ")
+    label = bare_input_name(label).strip().strip("[]【】_-/ ")
     return normalize_name(label), years, period
 
 
@@ -34,17 +35,32 @@ def match_model_workbook(path, dimensions: list[dict], year: int, targets: list[
     legacy_metrics = detect_metrics(path)
     # BytesIO is reusable after openpyxl has moved its cursor.
     mapping_metrics = list(dict.fromkeys(metric for item in active for metric in source_metrics(item))) if targets is not None else legacy_metrics
-    legacy = auto_mapping(path, mapping_metrics, year)
+    anchors = {dimension_year(item, year) for item in active} or {year}
+    legacy = auto_mapping(path, mapping_metrics, min(anchors))
+    for anchor in sorted(anchors - {min(anchors)}):
+        other = auto_mapping(path, mapping_metrics, anchor)
+        if (other.get("sheet"), other.get("header_row"), other.get("product_col")) == (legacy.get("sheet"), legacy.get("header_row"), legacy.get("product_col")):
+            for key, value in other["fields"].items():
+                if value or key not in legacy["fields"]:
+                    legacy["fields"][key] = value
     by_name = defaultdict(set)
     named_owners = defaultdict(set)
     custom = set()
     custom_targets = set()
+    current_by_name = defaultdict(set)
+    periods_by_key = defaultdict(set)
     for dimension in active:
+        anchor = dimension_year(dimension, year)
         names = declared_input_names(dimension, year)
         for spec in input_specs_for_dimension(dimension, year):
             key = spec["key"]
             name = names.get(key, field_label(key))
             by_name[normalize_name(bare_input_name(name))].add(key)
+            if int(key.split(":")[1]) == anchor:
+                current_by_name[normalize_name(bare_input_name(name))].add(anchor)
+                periods_by_key[key].add(("current_year", anchor))
+            else:
+                periods_by_key[key].add(("previous_year", anchor))
             named_owners[(normalize_name(bare_input_name(name)), key)].add(dimension["key"])
             if normalize_name(bare_input_name(name)) != normalize_name(bare_input_name(field_label(key))):
                 custom.add(key)
@@ -70,12 +86,17 @@ def match_model_workbook(path, dimensions: list[dict], year: int, targets: list[
                         recognized.add(key)
                         matched_targets.update(named_owners[(label, key)])
                         expected_year = int(key.split(":")[1])
-                        relative_year = year - 1 if period == "previous_year" else year
-                        if (years and (years != {expected_year} or (context and expected_year not in context))) or (not years and context and context != {expected_year}):
+                        owners = periods_by_key[key]
+                        # A year-labelled annual sheet can contain both the
+                        # current year and its YOY base; explicit column years
+                        # still have to match the requested input exactly.
+                        if years and (years != {expected_year} or (context and not any(context <= {expected_year, anchor} for _, anchor in owners))):
                             continue
-                        if period and relative_year != expected_year:
+                        if period and not any(role == period and (context == {anchor} if context else len(current_by_name[label]) == 1) for role, anchor in owners):
                             continue
-                        if not years and not context and not period and expected_year != year:
+                        if not years and context and not period and context != {expected_year}:
+                            continue
+                        if not years and not context and not period and current_by_name[label] != {expected_year}:
                             continue
                         matches[key].append(cell.column_letter)
                 if recognized:
@@ -102,11 +123,19 @@ def match_model_workbook(path, dimensions: list[dict], year: int, targets: list[
             mapping["confirmation_note"] = "多个表头或工作表匹配所需数据，请确认工作表和数据列"
     else:
         mapping = legacy
+        if len(candidates) == 1:
+            named = candidates[0]
+            if (mapping.get("sheet"), mapping.get("header_row"), mapping.get("product_col")) == (named["sheet"], named["header_row"], named["product_col"]):
+                mapping["fields"] = {**mapping["fields"], **named["fields"]}
+                mapping["ambiguous_fields"] = named.get("ambiguous_fields", [])
     selected = [item for item in active if item["key"] in detected_targets]
     expected = {spec["key"] for item in selected for spec in input_specs_for_dimension(item, year)}
     # Preserve legacy display-only columns (e.g. per-file ratios) as before.
     for key in expected:
         mapping["fields"].setdefault(key, None)
+    # Legacy adapters know all seven costs, but only the model-selected subset
+    # belongs to this file's active mapping contract.
+    mapping["fields"] = {key: value for key, value in mapping["fields"].items() if key in expected}
     metrics = list(dict.fromkeys(metric for item in selected for metric in source_metrics(item)))
     if mapping.get("ambiguous_fields"):
         mapping["confirmation_note"] = "同一数据字段有多个候选列，请确认数据来源"

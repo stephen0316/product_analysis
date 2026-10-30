@@ -91,7 +91,8 @@ class ScorePresentationTests(unittest.TestCase):
         self.assertEqual(finance['columns'][money_index]['unit'], '万元')
         self.assertIn('万元', workbook['重点产品-效益贡献'].cell(3,money_index+1).number_format)
         self.assertEqual(step_format('self_research',10,{}), {'format':'ratio','unit':'倍'})
-        self.assertEqual(step_format('revenue',0,{})['unit'], '单位未标注')
+        self.assertEqual(step_format('revenue',0,{})['unit'], '万元')
+        self.assertEqual(step_format('gross_profit',0,{'unit':'单位未标注'})['unit'], '万元')
         self.assertEqual(step_format('gross_margin',0,{})['format'], 'percent')
 
     def test_multi_metric_legacy_indicator_explains_average_of_ratios(self):

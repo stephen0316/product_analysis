@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .constants import ECONOMIC_FIELDS, METRIC_NAMES, PRODUCTS, expected_fields_for_metrics, field_label
+from .constants import ECONOMIC_FIELDS, METRIC_NAMES, PRODUCTS, SELF_RESEARCH_COST_FIELDS, expected_fields_for_metrics, field_label
 
 CONTRACT = "semantic-plan-v1"
 
@@ -162,6 +162,10 @@ def validate_plan(value, source: str) -> ExecutionPlan:
         raise ValueError("真实能力评测数据尚未接入；年度模拟值必须明确标记为模拟")
     expected = {(item["field"], item["period"]) for item in input_contract(source)}
     actual = {(item.field, item.period) for item in plan.inputs}
+    cost_fields = [key for key in SELF_RESEARCH_COST_FIELDS if (key, "current_year") in actual]
+    if source == "self_research" and cost_fields:
+        expected = {("self_owned_ratio", "current_year"), ("research_revenue", "current_year"),
+                    *((key, "current_year") for key in cost_fields)}
     if actual != expected or len(actual) != len(plan.inputs):
         missing = expected - actual
         extra = actual - expected
@@ -195,6 +199,7 @@ def validate_plan(value, source: str) -> ExecutionPlan:
 
 def compile_plan(value, source: str, ranking: dict | None = None) -> dict:
     plan = validate_plan(value, source)
+    cost_fields = [key for key in SELF_RESEARCH_COST_FIELDS if any(item.field == key for item in plan.inputs)]
     settings = {**(ranking or {}), "direction": plan.ranking_direction}
     first = plan.first_score if plan.first_score is not None else settings.get("first_score", 10)
     decrement = plan.rank_decrement if plan.rank_decrement is not None else settings.get("decrement", .5)
@@ -213,7 +218,7 @@ def compile_plan(value, source: str, ranking: dict | None = None) -> dict:
         denominator = "上年值绝对值" if plan.growth_denominator == "absolute_previous" else "上年值"
         explanation = f"当年值与同比增幅分别{direction}排名赋分；增幅为当年与上年之差除以{denominator}，保留正负号；两项得分等权平均后，按平均分从高到低再次排名赋分。"
     elif plan.strategy in {"three_eff", "self_research"}:
-        explanation = ("劳产、人效、元效" if source == "three_eff" else f"自研收入占比（{plan.cap_percent or 100:g}%封顶）与研发投入产出比（研发收入÷七项研发成本合计）") + f"分别{direction}排名赋分，得分等权平均后再按高分优先排名赋分。"
+        explanation = ("劳产、人效、元效" if source == "three_eff" else f"自研收入占比（{plan.cap_percent or 100:g}%封顶）与研发投入产出比（研发收入÷所选研发成本合计：{'、'.join(field_label(key+':2025')[5:] for key in cost_fields)}）") + f"分别{direction}排名赋分，得分等权平均后再按高分优先排名赋分。"
     else:
         explanation = f"{'使用按年度固定生成的模拟能力评测原值，' if source == 'ability' else ''}{title}{direction}排名赋分。"
     explanation += f"首名{first:g}分，每名递减{decrement:g}分；并列同名次、后续名次跳位。"
@@ -224,9 +229,11 @@ def compile_plan(value, source: str, ranking: dict | None = None) -> dict:
             "ranking_direction": plan.ranking_direction, "time_window": plan.time_window, "tie_method": plan.tie_method,
             "parameters": {"first_score": plan.first_score, "rank_decrement": plan.rank_decrement,
                            "cap_percent": plan.cap_percent, "growth_denominator_uses_absolute_value": plan.growth_denominator == "absolute_previous" if plan.strategy == "economic" else None},
-            "required_inputs": [{"name": ("上一年度" if item.period == "previous_year" else "评估年度") + (item.name or field_label(item.field+":2025")[5:]), "concept": item.field, "period": item.period, "required": True} for item in plan.inputs],
+            "required_inputs": [{"name": (f"{year-(1 if item.period == 'previous_year' else 0)}年" if year is not None else "上一年度" if item.period == "previous_year" else "评估年度") + (item.name or field_label(item.field+":2025")[5:]), "concept": item.field, "period": item.period, "required": True} for item in plan.inputs],
             "steps": [], "assumptions": [], "warnings": [], "confidence": 1}
     return {"ranking": settings, "final_ranking": {**settings, "direction": "descending"},
+            "input_year": year,
+            "research_cost_fields": cost_fields if source == "self_research" else [],
             "cap": (plan.cap_percent if plan.cap_percent is not None else 100)/100,
             "growth_denominator_absolute": plan.growth_denominator != "previous", "rule": rule}
 

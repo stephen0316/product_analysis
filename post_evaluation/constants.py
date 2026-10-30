@@ -135,9 +135,9 @@ def input_specs_for_dimension(dimension: dict, year: int) -> list[dict]:
     The supported calculation type owns the raw fields. New indicator instances
     reuse that contract; AI-extracted text cannot create an unimplemented input.
     """
-    from .calculation_types import raw_fields, source_metrics
+    from .calculation_types import dimension_raw_fields, source_metrics
     from .input_names import bare_input_name, declared_input_names
-    fields = list(dict.fromkeys(field for type_id in source_metrics(dimension) for field in raw_fields(type_id, year)))
+    fields = list(dict.fromkeys(field for type_id in source_metrics(dimension) for field in dimension_raw_fields(dimension, type_id, year)))
     names = declared_input_names(dimension, year)
     return [{"key": key, "label": f"{key.split(':')[1]}年{bare_input_name(names[key])}" if key in names else field_label(key), "required": True} for key in fields]
 
@@ -151,6 +151,7 @@ def display_specs_for_dimension(dimension: dict, year: int) -> list[dict]:
 
 def calculation_contracts(dimensions: list[dict], targets: list[str], year: int) -> list[dict]:
     """Return business-facing formulas and their raw-input slots."""
+    from .calculation_types import source_metrics
     selected = set(targets)
     contracts = []
     for dimension in dimensions:
@@ -161,11 +162,14 @@ def calculation_contracts(dimensions: list[dict], targets: list[str], year: int)
         inputs = [{"key": item["key"], "label": item["label"], "required": True} for item in specs]
         display_inputs = [{"key": item["key"], "label": item["label"], "required": False} for item in display_specs]
         metric_keys = dimension.get("metric_keys") or []
-        if metric_keys == ["self_research"]:
+        if "self_research" in source_metrics(dimension):
+            from .rule_years import dimension_year
+            input_year = dimension_year(dimension, year)
+            cost_keys = [item["key"] for item in specs if item["key"].startswith("research_cost_")]
             input_groups = [
-                {"label": f"{year}年自研收入占比", "keys": [f"self_owned_ratio:{year}"]},
-                {"label": f"{year}年研发收入", "keys": [f"research_revenue:{year}"]},
-                {"label": f"{year}年研发成本（E～K项合计）", "keys": [f"{field}:{year}" for field in SELF_RESEARCH_COST_FIELDS]},
+                {"label": f"{input_year}年自研收入占比", "keys": [f"self_owned_ratio:{input_year}"]},
+                {"label": f"{input_year}年研发收入", "keys": [f"research_revenue:{input_year}"]},
+                {"label": f"{input_year}年研发成本（所选{len(cost_keys)}项合计）", "keys": cost_keys},
             ]
             formula = "自研收入占比与研发投入产出比分别排名赋分；研发投入产出比＝研发收入÷研发成本合计；两项得分取平均后再次排名赋分。"
         else:

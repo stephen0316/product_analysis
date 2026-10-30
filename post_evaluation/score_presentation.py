@@ -10,14 +10,16 @@ def step_format(type_id: str, index: int, step: dict) -> dict:
     percent |= type_id == 'self_research' and index == 0
     if percent:
         return {'format': 'percent', 'unit': ''}
-    if (type_id in ECONOMIC_FIELDS and index == 3) or (type_id == 'three_eff' and index == 3) or (type_id == 'self_research' and index == 11):
+    if (type_id in ECONOMIC_FIELDS and index == 3) or (type_id == 'three_eff' and index == 3) or (type_id == 'self_research' and step.get('label') in {'自研占比/ROI平均分', '两项得分平均'}):
         return {'format': 'score', 'unit': '分'}
-    if type_id == 'self_research' and index == 10:
+    if type_id == 'self_research' and (step.get('label') == '研发投入产出比' or (not step.get('label') and index == 10)):
         return {'format': 'ratio', 'unit': '倍'}
     unit = (step.get('source') or {}).get('unit') or step.get('unit') or ''
     money = field in {'revenue', 'gross_profit', 'operating_profit', 'research_revenue'} or field.startswith('research_cost_')
-    money |= (type_id in {'revenue', 'gross_profit', 'operating_profit'} and index in {0, 1}) or (type_id == 'self_research' and 1 <= index <= 9)
-    return {'format': 'number', 'unit': unit or ('单位未标注' if money else '')}
+    money |= (type_id in {'revenue', 'gross_profit', 'operating_profit'} and index in {0, 1}) or (type_id == 'self_research' and step.get('label') in {'研发收入', '研发总成本'})
+    if money and unit in {'', '单位未标注'}:
+        unit = '万元'
+    return {'format': 'number', 'unit': unit}
 
 
 def step_label(indicator: dict, type_id: str, index: int, step: dict, year: int) -> str:
@@ -33,9 +35,9 @@ def step_label(indicator: dict, type_id: str, index: int, step: dict, year: int)
         return [f'{year-1}年{base}', f'{year}年{base}', f'{year-1}-{year}年{base}增幅', f'{base}/增幅平均分'][index] if index < 4 else step.get('label', '')
     if type_id == 'ability' and index == 0:
         return f'{year}年{label}（模拟值）'
-    if type_id == 'self_research' and index == 9:
+    if type_id == 'self_research' and step.get('label') in {'研发总成本', '研发成本合计'}:
         return '研发总成本'
-    if type_id == 'self_research' and index == 11:
+    if type_id == 'self_research' and step.get('label') in {'自研占比/ROI平均分', '两项得分平均'}:
         return f'{label}平均分'
     raw = step.get('label') or f'步骤{index+1}'
     return f'{label}平均分' if raw in {'两项得分平均', '三项得分平均'} else raw
@@ -85,10 +87,13 @@ def present_scores(definition: dict, result: dict, summary: dict) -> dict:
             continue
         row, dimension, type_id = context
         raw_steps = original.get('steps', [])
-        steps = [{**step, **step_format(type_id, index, step), 'display_label': step_label(dimension, type_id, index, step, int(result.get('year', 2025)))} for index, step in enumerate(raw_steps)]
-        if type_id == 'self_research' and len(steps) > 9:
-            cost_units = {step_format(type_id, index, raw_steps[index])['unit'] for index in range(2, 9)}
+        steps = [{**step, **step_format(type_id, index, step), 'display_label': step_label(dimension, type_id, index, step, int(original.get('data_year', result.get('year', 2025))))} for index, step in enumerate(raw_steps)]
+        if type_id == 'self_research':
+            cost_units = {step_format(type_id, index, step)['unit'] for index, step in enumerate(raw_steps)
+                          if str((step.get('source') or {}).get('field', '')).startswith('research_cost_')}
             if len(cost_units) == 1:
-                steps[9]['unit'] = cost_units.pop()
+                for step in steps:
+                    if step.get('label') == '研发总成本':
+                        step['unit'] = next(iter(cost_units))
         enriched.append({**original, 'indicator_label': row['label'], 'contribution': row, 'steps': steps})
     return {'indicator_scores': explanations, 'traces': enriched}

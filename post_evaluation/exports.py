@@ -88,6 +88,12 @@ def _trace_step(trace: dict | None, index: int) -> dict:
     return steps[index] if index < len(steps) else {}
 
 
+def _research_step(trace: dict | None, label: str, legacy_index: int) -> dict:
+    steps = (trace or {}).get("steps") or []
+    return next((step for step in steps if step.get("label") == label),
+                _trace_step(trace, legacy_index) if len(steps) >= 12 else {})
+
+
 def _ranked_products(traces: dict, metric: str) -> list[str]:
     order = {product: index for index, product in enumerate(PRODUCTS)}
     return sorted(PRODUCTS, key=lambda product: (
@@ -347,9 +353,9 @@ def _add_self_research_sheet(wb, year: int, traces: dict, weights: dict[str, flo
         ability_trace = traces.get((product, "ability"))
         ratio = _trace_step(self_trace, 0)
         revenue = _trace_step(self_trace, 1)
-        total_cost = _trace_step(self_trace, 9)
-        roi = _trace_step(self_trace, 10)
-        average = _trace_step(self_trace, 11)
+        total_cost = _research_step(self_trace, "研发总成本", 9)
+        roi = _research_step(self_trace, "研发投入产出比", 10)
+        average = _research_step(self_trace, "自研占比/ROI平均分", 11)
         ability = _trace_step(ability_trace, 0)
         ability_label = "系统模拟占位值" if ability_trace else _PENDING
         ws.append([
@@ -534,9 +540,9 @@ def _fill_self_research_template(wb, traces: dict) -> None:
         ability_trace = traces.get((product, "ability"))
         ratio = _trace_step(self_trace, 0)
         revenue = _trace_step(self_trace, 1)
-        total_cost = _trace_step(self_trace, 9)
-        roi = _trace_step(self_trace, 10)
-        average = _trace_step(self_trace, 11)
+        total_cost = _research_step(self_trace, "研发总成本", 9)
+        roi = _research_step(self_trace, "研发投入产出比", 10)
+        average = _research_step(self_trace, "自研占比/ROI平均分", 11)
         ability = _trace_step(ability_trace, 0)
         rows.append({
             2: product,
@@ -661,11 +667,13 @@ def _trace_column_specs(indicator: dict, traces: dict, result: dict, data_year: 
             label = f"{indicator.get('label')}得分"
             specs.append({"label": label, "kind": "score", "metric": metric, "role": "score"})
             continue
+        input_year = int(sample.get("data_year", data_year))
         for step_index, step in enumerate(sample.get("steps") or []):
             # 自研能力只展示汇总后的研发总成本，成本组成仍保留在计算追溯数据中。
-            if type_id == "self_research" and 2 <= step_index <= 8:
+            if type_id == "self_research" and (str((step.get("source") or {}).get("field", "")).startswith("research_cost_")
+                                               or re.fullmatch(r"研发成本\d+", str(step.get("label", "")))):
                 continue
-            label = _export_step_label(indicator, type_id, step_index, step, data_year)
+            label = _export_step_label(indicator, type_id, step_index, step, input_year)
             specs.append({"label": label, "kind": "step", "metric": metric, "calculation_type": type_id, "step": step_index, "field": "value", "role": "value", "unit": step_format(type_id, step_index, step)["unit"]})
             if any((_trace_step(traces.get((product, metric)), step_index)).get("rank") is not None for product in PRODUCTS):
                 specs.append({"label": f"{label}排名", "kind": "step", "metric": metric, "step": step_index, "field": "rank", "role": "rank"})

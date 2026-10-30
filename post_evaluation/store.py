@@ -125,6 +125,23 @@ def connect():
                 "INSERT INTO model_events VALUES(?,?,?,?,?)",
                 (uuid4().hex, row["id"], "structure_migration", timestamp, json.dumps(event_detail, ensure_ascii=False)),
             )
+    if not db.execute("SELECT 1 FROM system_meta WHERE key='concrete_preset_years_v1'").fetchone():
+        from .rule_years import concrete_defaults
+        timestamp = now()
+        for row in db.execute("SELECT id,year,status,definition FROM model_versions").fetchall():
+            years = {int(r[0]) for r in db.execute("SELECT DISTINCT COALESCE(data_year,year) FROM runs WHERE model_id=?", (row["id"],))}
+            # A relative preset shared across historical years has no single
+            # equivalent absolute year. Leave it intact rather than rewriting it.
+            if len(years) > 1:
+                continue
+            anchor = next(iter(years), int(row["year"])) if row["status"] != "draft" else datetime.now().year - 1
+            previous = json.loads(row["definition"])
+            definition = concrete_defaults(previous, anchor)
+            if definition != previous:
+                db.execute("UPDATE model_versions SET definition=?,updated_at=? WHERE id=?", (json.dumps(definition, ensure_ascii=False), timestamp, row["id"]))
+                db.execute("INSERT INTO model_events VALUES(?,?,?,?,?)", (uuid4().hex, row["id"], "summary_migration", timestamp,
+                           json.dumps({"summary": f"补全预设规则取数年份为{anchor}年", "previous_definition": previous}, ensure_ascii=False)))
+        db.execute("INSERT INTO system_meta VALUES('concrete_preset_years_v1',?)", (timestamp,))
     # Older releases automatically archived every previously published model.
     # There was no manual archive action, so those legacy rows can safely be
     # restored once when enabling concurrent published models.
@@ -381,6 +398,9 @@ def _model_from_row(row: sqlite3.Row | None) -> dict | None:
         return None
     model = dict(row)
     model["definition"] = json.loads(model["definition"])
+    if model["status"] == "draft":
+        from .cost_scope import expand_legacy_cost_summary
+        model["definition"] = expand_legacy_cost_summary(model["definition"])
     # Legacy columns remain in SQLite for backward-compatible storage only.
     # They are not part of the user-facing model contract.
     model.pop("year", None)
@@ -504,6 +524,10 @@ def create_model(name: str, version: str, clone_from: str | None) -> dict:
             definition = default_model_definition()
             legacy_year = datetime.now().year
             legacy_scope = "13条重点产品"
+        from .cost_scope import expand_legacy_cost_summary
+        definition = expand_legacy_cost_summary(definition)
+        from .rule_years import concrete_defaults
+        definition = concrete_defaults(definition, datetime.now().year - 1)
         summary = f"复制{source['version']}为{version}" if clone_from else f"创建模型{version}"
         db.execute(
             "INSERT INTO model_versions VALUES(?,?,?,?,?,?,?,?,?,?,?)",

@@ -65,8 +65,8 @@ def dimension_evidence(run, result, evidence):
                     "zero_count": sum(v == 0 for _, v in values),
                     "highest": [{"product": p, "value": format_fact(v, column)} for p, v in ordered if v == ordered[0][1]],
                     "lowest": [{"product": p, "value": format_fact(v, column)} for p, v in ordered if v == ordered[-1][1]]}
-            # Only financial amounts with an explicit unit can be summed.
-            if column.get("unit") and column.get("unit") != "单位未标注" and column["format"] == "number" and column.get("trace_metric") in {"revenue", "gross_profit", "operating_profit"}:
+            # Financial amounts use the source unit, defaulting to 万元.
+            if column.get("unit") and column["format"] == "number" and column.get("trace_metric") in {"revenue", "gross_profit", "operating_profit"}:
                 total = sum(v for _, v in values)
                 stat["available_sample_total"] = format_fact(total, column)
                 if total > 0 and all(v >= 0 for _, v in values):

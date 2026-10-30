@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import llm_client
 from .calculation_types import source_metrics
 from .constants import input_specs_for_dimension
+from .rule_years import dimension_year
 from .ingest import _header_years
 from .input_names import normalize_name
 
@@ -65,6 +66,7 @@ def request_mapping(payload: dict) -> dict:
 仅从给定工作表、表头行和列选择原始数据来源，按指标规则理解业务语义和年度，不得编造列、指标或期间。
 所有字段使用给定输入 key。不得把增幅、排名或计算后的得分替代原始输入；字段名称明确要求评分时可以用原始评分。
 单个文件可只提供部分输入，不需要补齐全部字段。不得覆盖 rules 中已确定的映射。
+顶层 year 仅是批次年度；每个指标的 data_year 和输入字段 key 才是实际取数年份，不得用批次年度替换规则指定年度。
 多个列或工作表均可能成立、年度不明、业务口径不清时，写入 questions，不猜测。confidence 为0到1。
 reason 用简短中文说明选取依据。无法确定时返回空 targets/fields，questions 用中文说明需用户确认。"""
     return llm_client.chat_json(instruction, json.dumps(payload, ensure_ascii=False),
@@ -83,7 +85,7 @@ def mapping_with_fallback(path, filename: str, dimensions: list[dict], year: int
     mapping["ai_attempted"] = True
     try:
         active = [d for d in dimensions if d.get("enabled", True)]
-        catalog = [{"key": d["key"], "name": d["label"], "rule": d.get("rule_summary", ""),
+        catalog = [{"key": d["key"], "name": d["label"], "rule": d.get("rule_summary", ""), "data_year": dimension_year(d, year),
                     "inputs": input_specs_for_dimension(d, year)} for d in active]
         inventory = header_inventory(path)
         if not inventory:
@@ -109,11 +111,13 @@ def mapping_with_fallback(path, filename: str, dimensions: list[dict], year: int
                 raise ValueError("derived value is not raw input")
             years = _header_years(cols[choice.column]) | _header_years(proposal.sheet)
             expected = int(choice.field.split(":")[1])
+            anchors = {dimension_year(d, year) for d in active if d["key"] in proposal.targets
+                       and choice.field in {s["key"] for s in input_specs_for_dimension(d, year)}}
             if years and years != {expected}:
                 raise ValueError("year conflict")
-            if not years and expected != year and not any(w in cols[choice.column] for w in ("上年", "去年")):
+            if not years and expected not in anchors and not any(w in cols[choice.column] for w in ("上年", "去年")):
                 raise ValueError("missing period")
-            if any(w in cols[choice.column] for w in ("上年", "去年")) and expected != year - 1:
+            if any(w in cols[choice.column] for w in ("上年", "去年")) and not any(expected == anchor - 1 for anchor in anchors):
                 raise ValueError("period conflict")
             fields[choice.field] = choice.column
         if any(not ({s["key"] for s in input_specs_for_dimension(d, year)} & fields.keys())

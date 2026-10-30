@@ -33,10 +33,13 @@ def declared_input_names(dimension: dict, year: int) -> dict[str, str]:
     Names are matching/display metadata; they never introduce engine fields or
     change a formula. Stale parser records cannot rename current dependencies.
     """
-    from .calculation_types import raw_fields, source_metrics
+    from .calculation_types import dimension_raw_fields, source_metrics
     from .constants import FIELD_LABELS
+    from .rule_years import dimension_year
 
-    fields = [field for source in source_metrics(dimension) for field in raw_fields(source, year)]
+    year = dimension_year(dimension, year)
+
+    fields = [field for source in source_metrics(dimension) for field in dimension_raw_fields(dimension, source, year)]
     names = {}
     options = dimension.get("options") or {}
     parsed = options.get("parsed_rule") or {}
@@ -71,4 +74,4 @@ def declared_input_names(dimension: dict, year: int) -> dict[str, str]:
 def bare_input_name(value: str) -> str:
     """Remove a declaration's period prefix for year-aware header matching."""
     value = re.sub(r"^(?:上一年度|上一年|上年|去年|评估年度|最新年度|本年度|当年|本年)", "", value.strip())
-    return re.sub(r"^(?:(?:19|20)\d{2}|\d{2})年\s*", "", value)
+    return re.sub(r"^(?:(?:19|20)\d{2}|\d{2})\s*年\s*的?\s*", "", value)

@@ -62,7 +62,7 @@ class EndToEndTests(unittest.TestCase):
                 self.assertEqual(uploaded[0]["mapping"]["provided_summary"], ["2025年自研收入占比"])
                 self.assertEqual(
                     uploaded[1]["mapping"]["provided_summary"],
-                    ["2025年研发收入", "2025年研发成本（E～K项合计）"],
+            ["2025年研发收入", "2025年研发成本（所选7项合计）"],
                 )
                 self.assertEqual(uploaded[1]["mapping"]["fields"]["research_revenue:2025"], "C")
                 self.assertEqual(
