@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError
 
-from fastapi.testclient import TestClient
+from auth_test_support import TestClient
 
 from post_evaluation.app import app
 from test_semantic_rules import example_plan
@@ -54,7 +54,7 @@ class RuleParserTests(unittest.TestCase):
 
     def test_returns_schema_constrained_gateway_result(self):
         api_response = {
-            "choices": [{"finish_reason": "STOP", "message": {"content": json.dumps({"normalized_summary": "按市场占有率排名赋分", "execution_plan": example_plan("market_share"), "confidence": .98}, ensure_ascii=False)}}]
+            "choices": [{"finish_reason": "STOP", "message": {"content": json.dumps({"rule_intent": "scoring_rule", "rule_evidence": ["数值最大的产品排在最前"], "normalized_summary": "按市场占有率排名赋分", "execution_plan": example_plan("market_share"), "confidence": .98}, ensure_ascii=False)}}]
         }
         captured = {}
 
@@ -85,6 +85,40 @@ class RuleParserTests(unittest.TestCase):
         self.assertEqual(schema["type"], "object")
         self.assertIn("execution_plan", schema["required"])
         self.assertIn("不要把增幅", captured["payload"]["messages"][0]["content"])
+
+    def test_unrelated_or_incomplete_text_cannot_inherit_a_valid_indicator_plan(self):
+        # Even a structurally executable plan must not override a non-rule
+        # classification or absent/invented evidence from the user's summary.
+        cases = [
+            ("晚上吃什么", "irrelevant", []),
+            ("今天天气不错", "irrelevant", []),
+            ("毛利", "needs_clarification", []),
+            ("晚上吃什么", "scoring_rule", []),
+            ("晚上吃什么", "scoring_rule", ["按毛利排名赋分"]),
+        ]
+        for summary, intent, evidence in cases:
+            with self.subTest(summary=summary, intent=intent):
+                raw = {"rule_intent": intent, "rule_evidence": evidence,
+                       "normalized_summary": "毛利与增幅分别赋分后平均再排名",
+                       "execution_plan": example_plan("gross_profit"), "confidence": .99}
+                with patch("post_evaluation.llm_client.configured", return_value=True), patch("post_evaluation.llm_client.chat_json", return_value=raw):
+                    response = self.client.post("/api/rules/parse", json={
+                        "dimension_label": "毛利/增幅", "summary": summary,
+                        "calculation_type": "gross_profit",
+                    })
+                self.assertEqual(response.status_code, 400, response.text)
+                self.assertNotIn('"executable":true', response.text)
+
+    def test_rule_intent_accepts_flexible_language_with_verbatim_evidence(self):
+        from post_evaluation.gemini_rules import parse_rule_summary
+        for summary in ("规模和成长各占一票，两张成绩单均分后再论英雄", "分别降序排名并赋分，再按平均分排名"):
+            with self.subTest(summary=summary):
+                raw = {"rule_intent": "scoring_rule", "rule_evidence": [summary],
+                       "normalized_summary": "当年收入与增幅分别赋分，平均后再排名赋分",
+                       "execution_plan": example_plan(), "confidence": .99}
+                with patch("post_evaluation.llm_client.configured", return_value=True), patch("post_evaluation.llm_client.chat_json", return_value=raw):
+                    result = parse_rule_summary("经营表现", summary, source_hint="revenue")
+                self.assertEqual(result["rule"]["execution_plan"]["source_metric"], "revenue")
 
     def test_parses_weight_optimization_goal_without_calculating_weights(self):
         api_response = {

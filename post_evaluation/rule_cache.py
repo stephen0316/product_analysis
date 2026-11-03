@@ -12,7 +12,7 @@ _lock = Lock()
 
 
 def cache_key(label, summary, source_hint, ranking, model):
-    return json.dumps([CONTRACT, "explicit-input-years-v5", os.environ.get("PRODUCT_EVAL_DATA_DIR", "local_data"), model,
+    return json.dumps([CONTRACT, "rule-intent-evidence-v6", os.environ.get("PRODUCT_EVAL_DATA_DIR", "local_data"), model,
                        label, summary, source_hint, ranking], sort_keys=True, ensure_ascii=False)
 
 

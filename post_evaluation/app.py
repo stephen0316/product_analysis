@@ -37,11 +37,14 @@ from .result_state import describe_result
 from .weight_optimizer import optimize_weights
 from .scoring import calculate
 from . import store
+from . import auth
 from . import report_jobs
 from .report_preview import report_html
 
 
 app = FastAPI(title="产品后评估", version="0.1.0")
+app.middleware("http")(auth.access_control)
+app.include_router(auth.router)
 
 
 @app.get("/api/health")

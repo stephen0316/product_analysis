@@ -17,6 +17,33 @@ class GeminiRuleError(RuntimeError):
 
 
 RULE_SCHEMA = response_schema()
+# Classification is separate from executability: a valid plan can still be a
+# hallucination inferred from the indicator title instead of the user's text.
+RULE_SCHEMA["properties"]["rule_intent"] = {
+    "type": "string", "enum": ["scoring_rule", "irrelevant", "needs_clarification"],
+    "description": "仅判断规则摘要本身是否表达评价/计分意图。闲聊为irrelevant，只有数据名或空泛目标为needs_clarification。指标名称和来源提示不能替代规则摘要。",
+}
+RULE_SCHEMA["properties"]["rule_evidence"] = {
+    "type": "array", "items": {"type": "string"},
+    "description": "逐字摘录规则摘要中表达如何评价、比较或计分的原文短句。不能引用指标名称、来源提示或编造改写。无规则时为空数组。",
+}
+RULE_SCHEMA["required"].extend(["rule_intent", "rule_evidence"])
+
+
+class RuleIntentError(ValueError):
+    pass
+
+
+def validate_rule_intent(value: dict, summary: str) -> dict:
+    value = dict(value)
+    intent = value.pop("rule_intent", None)
+    evidence = value.pop("rule_evidence", None)
+    if intent != "scoring_rule":
+        raise RuleIntentError("这段文字尚未表达评分规则，请说明使用什么数据、如何比较或计分")
+    if (not isinstance(evidence, list) or not evidence
+            or any(not isinstance(quote, str) or not quote.strip() or quote not in summary for quote in evidence)):
+        raise RuleIntentError("未能从规则原文确认计分依据，请补充如何比较或计分")
+    return value
 
 WEIGHT_GOAL_SCHEMA = {
     "type": "object",
@@ -60,6 +87,7 @@ inputs必须列出原始业务字段及期间，不要把增幅、平均分、�
 每个inputs.name必须保留摘要明确使用的原始数据名称，供上传表头匹配。例如品质服务按“服务评分”排名时，field为quality，name为服务评分，不要将name改写成目录里的“品质服务”或“产品推广满意度”。摘要没有明确名称时name为null；未知或含义有歧义的数据仍须提出questions，不得猜测目录字段。
 strategy表示实际计算依赖，不是关键词匹配：single为原值排名赋分；economic为当年值与增幅各自排名赋分、对两个得分等权平均后再次排名赋分；three_eff为劳产元效人效各自赋分后等权平均再排名；self_research为占比封顶与研发收入/成本比值各自赋分后等权平均再排名；ability是明确的年度模拟值排名。
 不要强行套入最接近的方案。加权平均、分段赋分、额外加减分、取最大值、自定义筛选、不同的计算先后顺序等未支持含义，必须逐项写入unsupported_features。需要澄清的业务歧义写入questions；不能用猜测消除问题。
+先判断摘要本身是否包含业务评价/比较/计分意图，再构造方案。不能仅凭指标名称或已有绑定恢复默认方案。“晚上吃什么”“今天天气不错”等闲聊必须rule_intent=irrelevant、rule_evidence=[]；“毛利”“优化一下”等没有评价方法的内容为needs_clarification。此时strategy=unsupported并在questions说明缺少评分规则，禁止输出一个成功的默认方案。合法口语、隐喻、同义改写仍可为scoring_rule，rule_evidence逐字引用摘要中的评价依据，不要求固定关键词或模板。
 默认业务口径：数值越大越好，使用竞争排名（并列同名次、后续跳位）；复合指标平均的是子项得分且最终按高分优先再次赋分。经济效益默认用上年值绝对值作增幅分母（growth_denominator=absolute_previous），保留增幅正负号（growth_result=signed_change）；自研占比默认100%封顶；ROI分母按摘要明确列出的成本项目合计，inputs只列所选成本，禁止补回未选项目。摘要未列成本范围的历史规则才沿用七项成本合计。用户明确提出不同口径时如实提取，不能悄悄恢复默认。
 不要输出time_window，年度范围由服务端按inputs实际依赖推导。摘要明确指定的取数年份优先于批次年度，不因批次年度或电脑当前年份改写；未指定数字年份的相对表达才使用批次年度。明确的2025年、25年收入等写入对应inputs.year=2025；当年值/上年值等未指定数字年份的输入year=null。取25年收入加同比增幅，需要current_year收入和previous_year收入两个输入，其中上年基数是指定年度2025的上一年2024，而非批次的上一年；明确年份不代表只读取一个年度，更不应将同比识别成自定义窗口。若原文指定不相邻的同比年份（如2025对2023）必须提出具体问题，不得自动改成年对年。single和ability的aggregation为none、final_ranking_direction为not_applicable；复合指标为equal_scores和descending。无增幅步骤的growth_denominator和growth_result均为not_applicable。经济效益的growth_result默认signed_change；“不把负增长变正数”和“增减方向保留”都表示signed_change；仅分母取绝对值不改变这一点。first_score、rank_decrement在用户没有明确改动时必须填null，表示继承当前模型设置。
 真实能力评测数据不能替换成模拟值；明确要求真实数据但尚未接入时写入unsupported_features。不得执行计算、编造数据或改动业务例外。"""
@@ -108,10 +136,13 @@ def parse_rule_summary(dimension_label: str, summary: str, *, source_hint: str |
         "可用原始数据和计算能力目录：" + json.dumps(source_catalog(), ensure_ascii=False)
     )
     try:
-        rule = normalize_interpretation(llm_client.chat_json(
-            SYSTEM_INSTRUCTION, prompt, RULE_SCHEMA, temperature=0, timeout=30))
+        raw = llm_client.chat_json(SYSTEM_INSTRUCTION, prompt, RULE_SCHEMA, temperature=0, timeout=30)
+        raw = validate_rule_intent(raw, summary.strip())
+        rule = normalize_interpretation(raw)
     except (HTTPError, URLError, TimeoutError) as exc:
         raise _transport_error(exc) from exc
+    except RuleIntentError:
+        raise
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise GeminiRuleError("AI 未返回完整的结构化计算方案，请重试识别") from exc
 

@@ -27,7 +27,7 @@ docker compose -f docker-compose.company.yml restart product-fenxi
 
 如果 `.env`、镜像依赖或 Compose 配置变化，应重新运行 `up -d` 以重建容器，单纯 restart 不会加载新环境变量；依赖变化还需要重新 build。不要使用 `down -v`。
 
-默认访问为 `http://服务器地址:4100`，该配置将 4100 绑定到所有网卡，访问范围由公司网络、网关或防火墙控制。网关地址映射 `onerouter.cmaiot.cn:10.12.84.1` 仅在对应内网环境有效。
+应用端口绑定 `127.0.0.1:4100`，应由同机 HTTPS 网关转发，禁止将旧 HTTP 端口直接暴露给员工。新版本启用独立账号认证，首次部署和账号初始化见 [团队账号与上线步骤](team-access.md)。网关地址映射 `onerouter.cmaiot.cn:10.12.84.1` 仅在对应内网环境有效。
 
 ## 数据卷与已有部署
 

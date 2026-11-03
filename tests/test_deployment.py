@@ -133,7 +133,7 @@ class DeploymentTests(unittest.TestCase):
 
     def test_health_checks_database_and_revision_without_model_request(self):
         from unittest.mock import patch
-        from fastapi.testclient import TestClient
+        from auth_test_support import TestClient
         from post_evaluation.app import app
 
         with patch.dict(os.environ, PRODUCT_EVAL_DATA_DIR=str(self.root / 'data'), APP_REVISION='test-revision'):

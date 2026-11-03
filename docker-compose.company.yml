@@ -15,7 +15,7 @@ services:
       PRODUCT_EVAL_DATA_DIR: /app/local_data
       TZ: Asia/Shanghai
     ports:
-      - "4100:8765"
+      - "127.0.0.1:4100:8765"
     extra_hosts:
       - "onerouter.cmaiot.cn:10.12.84.1"
     volumes:

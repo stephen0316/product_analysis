@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 from docx import Document
-from fastapi.testclient import TestClient
+from auth_test_support import TestClient
 from openpyxl import load_workbook
 
 from post_evaluation.app import app

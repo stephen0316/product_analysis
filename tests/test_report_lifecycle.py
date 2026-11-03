@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from auth_test_support import TestClient
 
 from post_evaluation.app import app
 from post_evaluation import store

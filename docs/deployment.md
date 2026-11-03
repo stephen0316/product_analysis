@@ -17,7 +17,7 @@
 | 入站网络 | 部署流程无需开放公网 SSH；用户通过公司已有反向代理访问应用 |
 | 运行目录 | 默认 `/opt/product-evaluation`，Runner 服务账户可写 |
 | 模型调用 | 服务器可访问已配置模型服务；公司网关使用 LLM_*，仅配置 GEMINI_* 时使用 Google 原生接口 |
-| 用户访问 | 通过公司统一登录或已有访问网关保护页面与全部 API；应用当前没有账户隔离 |
+| 用户访问 | 通过 HTTPS 网关访问，应用使用团队共享账号，登录后具有完整业务权限；不开放注册或创建其他账号 |
 
 Runner 主动连接 GitHub。不要在 GitHub 界面填一个内网 IP 并期望云端任务直接访问它。完整网络白名单以 [GitHub Runner 通信要求](https://docs.github.com/en/actions/reference/runners/self-hosted-runners#communication) 为准，包括镜像和 Actions 的下载域名。
 

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from docx import Document
-from fastapi.testclient import TestClient
+from auth_test_support import TestClient
 from openpyxl import Workbook, load_workbook
 
 from post_evaluation import store

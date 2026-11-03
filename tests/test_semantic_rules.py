@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from fastapi.testclient import TestClient
+from auth_test_support import TestClient
 
 from post_evaluation.app import app
 from post_evaluation.calculation_types import compile_rule, local_rule, rule_readiness
@@ -167,7 +167,7 @@ class SemanticRulesTests(unittest.TestCase):
         transport_plan.pop("version")
         transport_plan.pop("growth_preserve_sign")
         transport_plan["growth_result"] = "signed_change"
-        raw = {"normalized_summary": "今年收入与同比增幅的得分平均后再排名", "execution_plan": transport_plan, "confidence": .99}
+        raw = {"rule_intent": "scoring_rule", "rule_evidence": ["综合比较规模与同比成长，把分数平均后再排。"], "normalized_summary": "今年收入与同比增幅的得分平均后再排名", "execution_plan": transport_plan, "confidence": .99}
         captured = {}
         def fake_urlopen(request, **kwargs):
             captured.update(json.loads(request.data.decode()))
